@@ -162,8 +162,14 @@ Inductive host_reduce: store_record -> vi_store -> list module -> list host_e ->
     (s_globals s) !! g = Some v_glob ->
     const_list vs ->
     host_reduce s vis ms [H_get_global g] fs f vs s vis ms [] fs f (AI_basic (BI_const (g_val v_glob)) :: vs)
-| HR_get_global_trap: ∀ s vis ms g fs f,
-  host_reduce s vis ms [H_get_global g] fs f [::AI_trap] s vis ms [] fs f [::AI_trap]
+| HR_trap: ∀ s vis ms d ds fs f,
+    host_reduce s vis ms (d :: ds) fs f [::AI_trap] s vis ms ds fs f [::AI_trap]
+| HR_seq: ∀ s vis ms d ds vs fs f s' vis' ms' vs' fs' f' s2 vis2 ms2 d2 fs2 f2 vs2,
+    const_list vs ->
+    host_reduce s vis ms [d] fs f vs s' vis' ms' [] fs' f' vs' ->
+    host_reduce s' vis' ms' ds fs' f' vs' s2 vis2 ms2 d2 fs2 f2 vs2 ->
+    host_reduce s vis ms (d :: ds) fs f vs s2 vis2 ms2 d2 fs2 f2 vs2
+    
                 
 with execute_action : host_action -> store_record -> frame -> list value -> store_record -> list administrative_instruction -> Prop :=
 | execute_nothing : forall s f, execute_action HA_nothing s f [] s []
@@ -400,7 +406,9 @@ Proof.
         rewrite H0 in H5 ; inversion H5 ; subst ; inversion H1. }
     + simplify_eq. exfalso ; by eapply call_host_no_reduce.
     + simplify_eq. eapply llfill_const in H5;eauto. done.
-    + simplify_eq. apply llfill_trap_singleton in H2 as [? ?]. done. }
+    + simplify_eq. apply llfill_trap_singleton in H2 as [? ?]. done.
+    + simplify_eq. eapply llfill_const in H4;eauto. done.
+  }
   { induction Hred2.
     + apply (llfill_const _ _ _ HLI) in H8 => //.
     + apply (llfill_const _ _ _ HLI) in H6 => //.
@@ -414,43 +422,32 @@ Proof.
       done.
     + simplify_eq. exfalso ; by eapply call_host_no_reduce.
     + simplify_eq. eapply llfill_const in H4;eauto. done.
-    + simplify_eq. apply llfill_trap_singleton in H1 as [? ?]. done. }
+    + simplify_eq. apply llfill_trap_singleton in H1 as [? ?]. done.
+    + simplify_eq. eapply llfill_const in H3;eauto. done.
+  }
   - simplify_eq ; exfalso ; by eapply call_host_no_reduce.
   - simplify_eq. eapply llfill_const in H0;eauto. done.
   - simplify_eq. apply llfill_trap_singleton in HLI as [? ?]. done.
+  - simplify_eq. eapply llfill_const in H;eauto. done.
 Qed.  
 
-Lemma get_global_host_det g s vis ms fs f0 vs s1 vis1 ms1 idecs1 fs1 f1 vs1 vs2 s2 vis2 ms2 idecs2 fs2 f2 :
+Lemma host_det he s vis ms fs f0 vs s1 vis1 ms1 idecs1 fs1 f1 vs1 vs2 s2 vis2 ms2 idecs2 fs2 f2 :
   const_list vs ->
-  host_reduce s vis ms [H_get_global g] fs f0 vs s1 vis1 ms1 idecs1 fs1 f1 vs1 ->
-  host_reduce s vis ms [H_get_global g] fs f0 vs s2 vis2 ms2 idecs2 fs2 f2 vs2 ->
+  host_reduce s vis ms he fs f0 vs s1 vis1 ms1 idecs1 fs1 f1 vs1 ->
+  host_reduce s vis ms he fs f0 vs s2 vis2 ms2 idecs2 fs2 f2 vs2 ->
   (s1, vis1, ms1, idecs1, fs1, f1, vs1) = (s2, vis2, ms2, idecs2, fs2, f2, vs2).
 Proof.
   intros Hconst Hred1 Hred2.
-  remember [H_get_global g].
-  inversion Hred1;simplify_eq.
-  { by (eapply call_host_reduce_det in Hred1;eauto). }
-  { by (eapply call_host_reduce_det in Hred1;eauto). }
-  { inversion Hred2;simplify_eq.
-    { by (eapply call_host_reduce_det in Hred2;eauto). }
-    { by (eapply call_host_reduce_det in Hred2;eauto). }
-    { eapply values_no_reduce in H;auto. done. }
-    { eapply values_no_reduce in H;auto. done. }
-    { done. }
-  }
-  { inversion Hred2;simplify_eq;try done; try by (eapply call_host_reduce_det in Hred2;eauto).
-    { eapply values_no_reduce in H1;auto. done. }
-  }
-  { done. }
-Qed.
+  induction Hred1;simplify_eq.
+Admitted.
 
-Lemma get_global_trap_host_det g s vis ms fs f0 s1 vis1 ms1 idecs1 fs1 f1 vs1 vs2 s2 vis2 ms2 idecs2 fs2 f2 :
-  host_reduce s vis ms [H_get_global g] fs f0 [AI_trap] s1 vis1 ms1 idecs1 fs1 f1 vs1 ->
-  host_reduce s vis ms [H_get_global g] fs f0 [AI_trap] s2 vis2 ms2 idecs2 fs2 f2 vs2 ->
+Lemma trap_host_det g s vis ms fs f0 s1 vis1 ms1 idecs1 fs1 f1 vs1 vs2 s2 vis2 ms2 idecs2 fs2 f2 :
+  host_reduce s vis ms [g] fs f0 [AI_trap] s1 vis1 ms1 idecs1 fs1 f1 vs1 ->
+  host_reduce s vis ms [g] fs f0 [AI_trap] s2 vis2 ms2 idecs2 fs2 f2 vs2 ->
   (s1, vis1, ms1, idecs1, fs1, f1, vs1) = (s2, vis2, ms2, idecs2, fs2, f2, vs2).
 Proof.
   intros Hred1 Hred2.
-  remember [H_get_global g]. remember [AI_trap].
+  remember [g]. remember [AI_trap].
   inversion Hred1;simplify_eq;try done.
   { by (eapply call_host_reduce_det in Hred1;eauto). }
   { by (eapply call_host_reduce_det in Hred1;eauto). }
@@ -760,7 +757,7 @@ Proof.
     destruct σ2 as [[[[s1 vis1] ms1] fs1] f1] => // /=.
     destruct es as [? ?].
     simpl in HStep. destruct HStep as [H [-> ->]].
-    eapply get_global_host_det in H;[..|apply HR_get_global;eauto];[|apply v_to_e_is_const_list..].
+    eapply host_det in H;[..|apply HR_get_global;eauto];[|apply v_to_e_is_const_list..].
     inversion H;subst. iFrame. iSimpl.
     assert (iris.to_val (AI_basic (BI_const (g_val v)) :: v_to_e_list vs)%SEQ =
               Some (immV (g_val v :: vs))).
@@ -770,35 +767,36 @@ Proof.
     rewrite H0. iSimpl. iSplit =>//.  iApply "HΦ". iFrame.
 Qed.
 
-Lemma wp_get_global_trap_host s E g v (Φ : host_val -> iProp Σ) :
-  N.of_nat g ↦[wg] v -∗
-  ▷ (N.of_nat g ↦[wg] v -∗ Φ trapHV) -∗
-  WP (([H_get_global g], [AI_trap]) : host_expr) @ s; E {{ Φ }}.
+Lemma wp_get_global_trap_host s E g (Φ : host_val -> iProp Σ) :
+  ▷ (Φ trapHV) -∗
+  WP (([g], [AI_trap]) : host_expr) @ s; E {{ Φ }}.
 Proof.
-  iIntros "Hglob HΦ".
+  iIntros " HΦ".
   iApply lifting.wp_lift_atomic_step => //=.
   iIntros (σ ns κ κs nt) "Hσ !>".
   destruct σ as [[[[s0 vis] ms] fs] f].
   iDestruct "Hσ" as "(? & ? & ? & Hg & ?)".
-  iDestruct (gen_heap_valid with "Hg Hglob") as "%Hglob".
-  rewrite gmap_of_list_lookup Nat2N.id in Hglob.
   iSplit.
   - iPureIntro.
     destruct s => //=.
     unfold reducible, language.prim_step => /=.
     eexists [], (_,_), (_, _, _, _, _), [].
     repeat split => //.
-    apply HR_get_global_trap;eauto.
+    apply HR_trap;eauto.
   - iIntros "!>" (es σ2 efs HStep) "!>".
     destruct σ2 as [[[[s1 vis1] ms1] fs1] f1] => // /=.
     destruct es as [? ?].
     simpl in HStep. destruct HStep as [H [-> ->]].
-    eapply get_global_trap_host_det in H;[..|apply HR_get_global_trap].
-    inversion H;subst. iFrame. iSimpl.
-    iSplit =>//.  iApply "HΦ". iFrame.
+    eapply trap_host_det in H;[..|apply HR_trap].
+    inversion H;subst. iFrame. iSimpl. done.
 Qed.
 
-  
+Lemma wp_host_seq_const s E (Φ : host_val -> iProp Σ) vs d ds :
+  const_list vs ->
+  WP (([d],vs) : host_expr) @ s; E {{ v, WP ((ds,iris.of_val (val_of_host_val v)) : host_expr) {{ Φ }} }} -∗
+  WP ((d :: ds,vs) : host_expr) @ s; E {{ Φ }}.
+Proof.
+Admitted.
 
 Lemma nth_error_none_fmap {A B} (l : seq.seq A) n (f : A -> B) :
   nth_error l n = None -> nth_error (f <$> l) n = None.
@@ -1537,7 +1535,8 @@ Proof.
   { by apply llfill_is_nil in H2; destruct H2 as [??]. }
   { by apply llfill_is_nil in H1; destruct H1 as [??]. }
   { by apply empty_no_reduce in H. }
-Qed.
+  { admit. }
+Admitted.
   
 Lemma wp_seq_host_nostart (s : stuckness) (E : coPset) (Φ Ψ : host_val -> iProp Σ) v_exps modi v_imps m (es : list host_e) :
   m.(mod_start) = None ->
@@ -1598,6 +1597,7 @@ Proof.
     { by apply llfill_is_nil in H2; destruct H2 as [??]. }
     { by apply llfill_is_nil in H1; destruct H1 as [??]. }
     { by apply empty_no_reduce in H. }
+    { admit. }
 
   - iIntros (e2 σ2 efs HStep).
     destruct σ2 as [[[[ws2 vis2] ms2] fs2] f2].
@@ -1635,8 +1635,8 @@ Proof.
       iMod "Hwp".
       iDestruct "Hwp" as "(HΨ & Hmodi)".
       by iDestruct ("Hntrap" with "HΨ") as "%".
-    } 
-Qed.
+    }
+Admitted.
     
 End host_structural.
 
