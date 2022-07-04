@@ -30,15 +30,16 @@ Definition vimp : Type := vi.
    in the program state, taking imports as specified by each of the vimps, 
    and store the list of exports in the vi_store for future use.
  *)
-Inductive inst_decl: Type :=
-  ID_instantiate: list vi -> N -> list vimp -> inst_decl.
+Inductive host_e: Type :=
+| ID_instantiate: list vi -> N -> list vimp -> host_e
+| H_get_global: globaladdr -> host_e.
 
 (* What a host function can do : *)
 (* So far, a host function cannot do much *)
 Inductive host_action : Type :=
 | HA_nothing : host_action
 | HA_print : host_action
-| HA_instantiate : inst_decl -> host_action
+| HA_instantiate : host_e -> host_action
 | HA_call_wasm : host_action
 | HA_modify_table : host_action
 .
@@ -111,7 +112,7 @@ Fixpoint innermost_frame llh defaultf :=
 
 
 
-Inductive host_reduce: store_record -> vi_store -> list module -> list inst_decl -> list host_action -> frame -> list administrative_instruction -> store_record -> vi_store -> list module -> list inst_decl -> list host_action -> frame -> list administrative_instruction -> Prop :=
+Inductive host_reduce: store_record -> vi_store -> list module -> list host_e -> list host_action -> frame -> list administrative_instruction -> store_record -> vi_store -> list module -> list host_e -> list host_action -> frame -> list administrative_instruction -> Prop :=
 | HR_host_step:
   forall s (vis: vi_store) m (viexps: list vi) vm vimps imps imp_descs s' vis' ms idecs' inst (exps: list module_export) start vs f fs,
     ms !! (N.to_nat vm) = Some m ->
@@ -157,7 +158,18 @@ Inductive host_reduce: store_record -> vi_store -> list module -> list inst_decl
 | HR_wasm_step: forall s vis ms idecs s' es es' f1 f2 fs,
     opsem.reduce s f1 es s' f2 es' ->
     host_reduce s vis ms idecs fs f1 es s' vis ms idecs fs f2 es'
-
+| HR_get_global: ∀ s f vis ms g v_glob fs vs,
+    (s_globals s) !! g = Some v_glob ->
+    const_list vs ->
+    host_reduce s vis ms [H_get_global g] fs f vs s vis ms [] fs f (AI_basic (BI_const (g_val v_glob)) :: vs)
+| HR_trap: ∀ s vis ms d ds fs f,
+    host_reduce s vis ms (d :: ds) fs f [::AI_trap] s vis ms ds fs f [::AI_trap]
+| HR_seq: ∀ s vis ms d ds vs fs f s' vis' ms' vs' fs' f' s2 vis2 ms2 d2 fs2 f2 vs2,
+    const_list vs ->
+    host_reduce s vis ms [d] fs f vs s' vis' ms' [] fs' f' vs' ->
+    host_reduce s' vis' ms' ds fs' f' vs' s2 vis2 ms2 d2 fs2 f2 vs2 ->
+    host_reduce s vis ms (d :: ds) fs f vs s2 vis2 ms2 d2 fs2 f2 vs2
+    
                 
 with execute_action : host_action -> store_record -> frame -> list value -> store_record -> list administrative_instruction -> Prop :=
 | execute_nothing : forall s f, execute_action HA_nothing s f [] s []
@@ -186,8 +198,18 @@ Proof.
   - unfold llfill in Hfill ; subst.
     unfold const_list in Hconst ; rewrite forallb_app in Hconst ; simpl in Hconst.
     apply andb_true_iff in Hconst as [_ ?] => //.
-Qed. 
+Qed.
 
+Lemma llfill_trap_singleton es lh :
+  llfill lh [es] = [AI_trap] -> lh = LL_base [] [] ∧ es = AI_trap.
+Proof.
+  intros Hfill.
+  destruct lh.
+  - inversion Hfill. destruct l,l0 =>//.
+    simpl in H0. inversion H0;auto.
+  - simpl in Hfill. destruct l =>//.
+  - simpl in Hfill. destruct l =>//.
+Qed.
 
 Lemma lh_of_sh_inj s0 s1 :
   lh_of_sh s0 = lh_of_sh s1 -> s0 = s1.
@@ -363,9 +385,9 @@ Lemma call_host_reduce_det s vis ms idecs fs tf h vcs s1 vis1 ms1 idecs1 fs1 f1 
 Proof.
   intros HLI Hred1 Hred2.
   induction Hred1.
-  - apply (llfill_const _ _ _ HLI) in H4 => //.
-  - apply (llfill_const _ _ _ HLI) in H2 => //. 
-  - induction Hred2.
+  { apply (llfill_const _ _ _ HLI) in H4 => //. }
+  { apply (llfill_const _ _ _ HLI) in H2 => //. }
+  { induction Hred2.
     + apply (llfill_const _ _ _ HLI) in H9 => //.
     + apply (llfill_const _ _ _ HLI) in H7 => //.
     + subst. rewrite - H7 in H2.
@@ -373,12 +395,21 @@ Proof.
       inversion H ; subst.
       rewrite H0 in H5. inversion H5 ; subst.
       destruct (execute_action_det _ _ _ _ _ _ _ _ H1 H6) as (-> & ->) => //. 
-    + simplify_eq. rewrite - H6 in H2. 
-      apply llfill_unique in H2 as [[H ->] | [? | [? | [ (?&?&?&[?|?]) | (?&?&?&[?|?])]]]] => //=.
-      inversion H ; subst.
-      rewrite H0 in H5 ; inversion H5 ; subst ; inversion H1.
-    + simplify_eq. exfalso ; by eapply call_host_no_reduce. 
-  - induction Hred2.
+    + destruct f0.
+      { simplify_eq. rewrite - H6 in H2. 
+        apply llfill_unique in H2 as [[H ->] | [? | [? | [ (?&?&?&[?|?]) | (?&?&?&[?|?])]]]] => //=.
+        inversion H ; subst.
+        rewrite H0 in H5 ; inversion H5 ; subst ; inversion H1. }
+      { simplify_eq. rewrite - H6 in H2. 
+        apply llfill_unique in H2 as [[H ->] | [? | [? | [ (?&?&?&[?|?]) | (?&?&?&[?|?])]]]] => //=.
+        inversion H ; subst.
+        rewrite H0 in H5 ; inversion H5 ; subst ; inversion H1. }
+    + simplify_eq. exfalso ; by eapply call_host_no_reduce.
+    + simplify_eq. eapply llfill_const in H5;eauto. done.
+    + simplify_eq. apply llfill_trap_singleton in H2 as [? ?]. done.
+    + simplify_eq. eapply llfill_const in H4;eauto. done.
+  }
+  { induction Hred2.
     + apply (llfill_const _ _ _ HLI) in H8 => //.
     + apply (llfill_const _ _ _ HLI) in H6 => //.
     + subst. rewrite - H6 in H1.
@@ -389,15 +420,45 @@ Proof.
       apply llfill_unique in H1 as [[ H -> ] | [? | [? | [ (?&?&?&[?|?]) | (?&?&?&[?|?])]]]] => //=.
       inversion H ; subst. rewrite H0 in H4 ; inversion H4 ; subst.
       done.
-    + simplify_eq. exfalso ; by eapply call_host_no_reduce. 
-  - simplify_eq ; exfalso ; by eapply call_host_no_reduce. 
-Qed.
-      
+    + simplify_eq. exfalso ; by eapply call_host_no_reduce.
+    + simplify_eq. eapply llfill_const in H4;eauto. done.
+    + simplify_eq. apply llfill_trap_singleton in H1 as [? ?]. done.
+    + simplify_eq. eapply llfill_const in H3;eauto. done.
+  }
+  - simplify_eq ; exfalso ; by eapply call_host_no_reduce.
+  - simplify_eq. eapply llfill_const in H0;eauto. done.
+  - simplify_eq. apply llfill_trap_singleton in HLI as [? ?]. done.
+  - simplify_eq. eapply llfill_const in H;eauto. done.
+Qed.  
 
-     
+Lemma host_det he s vis ms fs f0 vs s1 vis1 ms1 idecs1 fs1 f1 vs1 vs2 s2 vis2 ms2 idecs2 fs2 f2 :
+  const_list vs ->
+  host_reduce s vis ms he fs f0 vs s1 vis1 ms1 idecs1 fs1 f1 vs1 ->
+  host_reduce s vis ms he fs f0 vs s2 vis2 ms2 idecs2 fs2 f2 vs2 ->
+  (s1, vis1, ms1, idecs1, fs1, f1, vs1) = (s2, vis2, ms2, idecs2, fs2, f2, vs2).
+Proof.
+  intros Hconst Hred1 Hred2.
+  induction Hred1;simplify_eq.
+Admitted.
+
+Lemma trap_host_det g s vis ms fs f0 s1 vis1 ms1 idecs1 fs1 f1 vs1 vs2 s2 vis2 ms2 idecs2 fs2 f2 :
+  host_reduce s vis ms [g] fs f0 [AI_trap] s1 vis1 ms1 idecs1 fs1 f1 vs1 ->
+  host_reduce s vis ms [g] fs f0 [AI_trap] s2 vis2 ms2 idecs2 fs2 f2 vs2 ->
+  (s1, vis1, ms1, idecs1, fs1, f1, vs1) = (s2, vis2, ms2, idecs2, fs2, f2, vs2).
+Proof.
+  intros Hred1 Hred2.
+  remember [g]. remember [AI_trap].
+  inversion Hred1;simplify_eq;try done.
+  { by (eapply call_host_reduce_det in Hred1;eauto). }
+  { by (eapply call_host_reduce_det in Hred1;eauto). }
+  { apply test_no_reduce_trap in H. done. }
+  { inversion Hred2;simplify_eq;try done;try by (eapply call_host_reduce_det in Hred1;eauto).
+    apply test_no_reduce_trap in H. done. 
+  }
+Qed.  
 
 
-Definition host_expr : Type := (list inst_decl) * (list administrative_instruction).
+Definition host_expr : Type := (list host_e) * (list administrative_instruction).
 
 (* val is almost the same as native Wasm, defined in Iris.v, just without callHostV, brV and retV*)
 
@@ -499,23 +560,24 @@ Implicit Type σ : state.
 
 (* The host expands the memory model of Wasm by vi_store and a list of module declarations. *)
 
-Class hvisG Σ := HVisG {
-  vis_genG :> ghost_mapG Σ N module_export
+Class hvisG Σ :=
+  HVisG {
+      vis_genG :> ghost_mapG Σ N module_export;
+      visGName :> gname
 }.
 
-Class hmsG Σ := HMsG {
-  ms_genG :> ghost_mapG Σ N module
-                 }.
+Class hmsG Σ :=
+  HMsG {
+      ms_genG :> ghost_mapG Σ N module;
+      msGName :> gname
+    }.
 
-Class hasG Σ := HAsG {
-                   ha_genG :> ghost_mapG Σ N host_action
-                 }.
+Class hasG Σ :=
+  HAsG {
+      ha_genG :> ghost_mapG Σ N host_action;
+      haGName :> gname
+    }.
 
-
-Definition frameGName : positive := 10%positive.
-Definition visGName : positive := 11%positive.
-Definition msGName : positive := 12%positive.
-Definition haGName : positive := 13%positive.
 
 Definition proph_id := positive. (* still have no idea about what this is *)
 
@@ -531,14 +593,17 @@ Proof. move => m m'. unfold Decision. by decidable_equality. Qed.
 Instance eqdecision_module_export: EqDecision (list module_export).
 Proof. decidable_equality. Qed.
 
-Instance eqdecision_inst_decl: EqDecision inst_decl.
-Proof. move => i i'. unfold Decision. destruct i, i'.
-       destruct (list_eq_dec l l1), (list_eq_dec l0 l2), (decide (n = n0)) ;
-         try by right ; congruence. by left ; subst. Qed.
+Instance eqdecision_inst_decl: EqDecision host_e.
+Proof. move => i i'. unfold Decision. destruct i, i';try by right.
+       { destruct (list_eq_dec l l1), (list_eq_dec l0 l2), (decide (n = n0)) ;
+           try by right ; congruence. by left ; subst. }
+       { destruct (decide (g = g0));subst;[by left|right].
+         intros Hcontr. congruence. }
+Qed.
 
 Instance eqdecision_host_action: EqDecision host_action.
 Proof. move => m m'. unfold Decision. destruct m, m' ; try by (left + right).
-       destruct (eqdecision_inst_decl i i0).
+       destruct (eqdecision_inst_decl h h0).
        by left ; subst.
        by right ; congruence. Qed.
 
@@ -668,6 +733,70 @@ Proof.
     exact HLI. inversion HStep ; subst.
     iFrame. done.  
 Qed.
+
+Lemma wp_get_global_host s E g v vs (Φ : host_val -> iProp Σ) :
+  N.of_nat g ↦[wg] v -∗
+  ▷ (N.of_nat g ↦[wg] v -∗ Φ (immHV ((g_val v) :: vs))) -∗
+  WP (([H_get_global g], v_to_e_list vs) : host_expr) @ s; E {{ Φ }}.
+Proof.
+  iIntros "Hglob HΦ".
+  iApply lifting.wp_lift_atomic_step => //=.
+  iIntros (σ ns κ κs nt) "Hσ !>".
+  destruct σ as [[[[s0 vis] ms] fs] f].
+  iDestruct "Hσ" as "(? & ? & ? & Hg & ?)".
+  iDestruct (gen_heap_valid with "Hg Hglob") as "%Hglob".
+  rewrite gmap_of_list_lookup Nat2N.id in Hglob.
+  iSplit.
+  - iPureIntro.
+    destruct s => //=.
+    unfold reducible, language.prim_step => /=.
+    eexists [], (_,_), (_, _, _, _, _), [].
+    repeat split => //.
+    apply HR_get_global;eauto. apply v_to_e_is_const_list.
+  - iIntros "!>" (es σ2 efs HStep) "!>".
+    destruct σ2 as [[[[s1 vis1] ms1] fs1] f1] => // /=.
+    destruct es as [? ?].
+    simpl in HStep. destruct HStep as [H [-> ->]].
+    eapply host_det in H;[..|apply HR_get_global;eauto];[|apply v_to_e_is_const_list..].
+    inversion H;subst. iFrame. iSimpl.
+    assert (iris.to_val (AI_basic (BI_const (g_val v)) :: v_to_e_list vs)%SEQ =
+              Some (immV (g_val v :: vs))).
+    { rewrite separate1.
+      assert ([AI_basic (BI_const (g_val v))] = v_to_e_list [(g_val v)]) as ->;auto.
+      erewrite v_to_e_cat. rewrite to_val_cons_immV. auto. }
+    rewrite H0. iSimpl. iSplit =>//.  iApply "HΦ". iFrame.
+Qed.
+
+Lemma wp_get_global_trap_host s E g (Φ : host_val -> iProp Σ) :
+  ▷ (Φ trapHV) -∗
+  WP (([g], [AI_trap]) : host_expr) @ s; E {{ Φ }}.
+Proof.
+  iIntros " HΦ".
+  iApply lifting.wp_lift_atomic_step => //=.
+  iIntros (σ ns κ κs nt) "Hσ !>".
+  destruct σ as [[[[s0 vis] ms] fs] f].
+  iDestruct "Hσ" as "(? & ? & ? & Hg & ?)".
+  iSplit.
+  - iPureIntro.
+    destruct s => //=.
+    unfold reducible, language.prim_step => /=.
+    eexists [], (_,_), (_, _, _, _, _), [].
+    repeat split => //.
+    apply HR_trap;eauto.
+  - iIntros "!>" (es σ2 efs HStep) "!>".
+    destruct σ2 as [[[[s1 vis1] ms1] fs1] f1] => // /=.
+    destruct es as [? ?].
+    simpl in HStep. destruct HStep as [H [-> ->]].
+    eapply trap_host_det in H;[..|apply HR_trap].
+    inversion H;subst. iFrame. iSimpl. done.
+Qed.
+
+Lemma wp_host_seq_const s E (Φ : host_val -> iProp Σ) vs d ds :
+  const_list vs ->
+  WP (([d],vs) : host_expr) @ s; E {{ v, WP ((ds,iris.of_val (val_of_host_val v)) : host_expr) {{ Φ }} }} -∗
+  WP ((d :: ds,vs) : host_expr) @ s; E {{ Φ }}.
+Proof.
+Admitted.
 
 Lemma nth_error_none_fmap {A B} (l : seq.seq A) n (f : A -> B) :
   nth_error l n = None -> nth_error (f <$> l) n = None.
@@ -1469,6 +1598,7 @@ Proof.
     { by apply llfill_is_nil in H2; destruct H2 as [??]. }
     { by apply llfill_is_nil in H1; destruct H1 as [??]. }
     { by apply empty_no_reduce in H. }
+    { admit. }
 
   - iIntros (e2 σ2 efs HStep).
     destruct σ2 as [[[[ws2 vis2] ms2] fs2] f2].
@@ -1506,42 +1636,9 @@ Proof.
       iMod "Hwp".
       iDestruct "Hwp" as "(HΨ & Hmodi)".
       by iDestruct ("Hntrap" with "HΨ") as "%".
-    } 
-Qed.
-(*
-Lemma prim_step_inst_cons_reduce v_exps modi m v_imps ws1 vis1 ms1 ha1 f1 κ (es es': list inst_decl) wes σ2 efs:
-  ms1 !! N.to_nat modi = Some m ->
-  mod_start m = None -> 
-  prim_step ((ID_instantiate v_exps modi v_imps :: es), []) (ws1, vis1, ms1, ha1, f1) κ (es', wes) σ2 efs ->
-  prim_step ([ID_instantiate v_exps modi v_imps], []) (ws1, vis1, ms1, ha1, f1) [] ([], wes) σ2 [] /\ κ = [] /\ efs = [] /\ es' = es /\ (wes = [] \/ wes = [AI_trap]).
-Proof.
-  move => Hmodi Hnostart HStep.
-  destruct σ2 as [[[[ws2 vis2] ms2] ha2] f2].
-  simpl in *.
-  destruct HStep as [HStep [-> ->]].
-  inversion HStep; subst; clear HStep.
-  { repeat split => //; last first.
-    { rewrite H3 in Hmodi.
-      inversion Hmodi; subst m0.
-      unfold instantiate in H9.
-      destruct H9 as [? [? [? [? [? [? [_ [_ [_ [_ [_ [_ [_ [_ [Hstart _]]]]]]]]]]]]]]].
-      unfold check_start in Hstart.
-      rewrite Hnostart in Hstart.
-      move/eqP in Hstart.
-      simpl in Hstart.
-      by subst start; simpl; left.
     }
-    by eapply HR_host_step => //.
-  }
-  { repeat split => //.
-    { by eapply HR_host_step_init_oob. }
-    { by right. }
-  }
-  { by apply llfill_is_nil in H2; destruct H2 as [??]. }
-  { by apply llfill_is_nil in H1; destruct H1 as [??]. }
-  { by apply empty_no_reduce in H. }
-Qed.
-    *)
+Admitted.
+    
 End host_structural.
 
 
