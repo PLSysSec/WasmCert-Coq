@@ -527,37 +527,6 @@ Proof.
   - by apply: Zbits_Z_one_bits_uniq.
 Qed.
 
-(* FIXME: We might want to prove these lemmas.
-Lemma convert_to_bits_disjunct_sum : forall a b,
-  seq.all2 (fun a b => ~~ (a && b)) (convert_to_bits (repr a)) (convert_to_bits (repr b)) ->
-  convert_to_bits (repr (a + b))
-  = allpairs orb (convert_to_bits (repr a)) (convert_to_bits (repr b)).
-Proof.
-  rewrite /convert_to_bits /repr /intval.
-
-  elim: wordsize; first by [].
-  move=> ws IH a b E.
-Admitted. (* TODO *)
-
-Lemma convert_to_bits_testbit : forall n x,
-  n < wordsize ->
-  seq.nth false (convert_to_bits x) n
-  = Z.testbit (intval x) (wordsize - n - 1).
-Proof.
-  rewrite /convert_to_bits.
-
-  move=> n. elim: n.
-  - move=> x _. admit.
-  - move=> {} n IH x I. simpl.
-
-  elim: wordsize => ws; first by [].
-  move=> IH n x I. elim: n => /=.
-  /=.
-  simpl. rewrite <- IHws.
-  destruct n.
-  - simpl. case O: Z.odd.
-Qed.
-*)
 
 (** Once the conversion to and from lists of bits have been defined,
   the bit-related functions are easy to define. **)
@@ -679,21 +648,6 @@ Proof.
   - move: wordsize_modulus. by lias.
 Qed.
 
-(* FIXME: stuff that we may want to prove.
-Lemma ctz_wordsize : forall i,
-  ctz i = repr wordsize ->
-  i = repr 0.
-
-Lemma popcnt_wordsize : forall i,
-  popcnt i = repr wordsize ->
-  i = repr 0.
-
-Lemma ctz_shl : forall i k,
-  ctz (shl i k) = min wordsize (ctz i + k).
-
-Lemma clz_shr : forall i k,
-  clz (shr i k) = min wordsize (clz i + k).
-*)
 
 (** The following definitions mirrors as close as possible the specification
   of the corresponding operation in
@@ -933,27 +887,6 @@ Definition ishl (i1 i2 : T) : T :=
 (* TODO: Make it match better the specification. *)
 Definition ishr_u : T -> T -> T := shru.
 
-(* TODO
-(** Shift [i] by [k] bits, extended with the most significant bit of the original value. **)
-Definition shift_signed l k :=
-  if k is k.+1 then
-    if l is d :: l then
-      let: l := d :: d :: l (* TODO: Drop the last one. *) in
-      shift_signed l k
-    else l
-  else l.
-
-Definition ishr_s (i1 i2 : T) :=
-  let: k := unsigned i2 mod wordsize in
-  let: r := shift_signed (convert_to_bits i1) k in
-  (* TODO: convert back to a number. *)
-
-(* LATER
-Lemma ishr_s_shr : forall i1 i2,
-  ishr_s i1 i2 = shr i1 i2.
-Admitted.
-*)
-*)
 
 Definition Tmixin : mixin_of T := {|
      int_zero := zero ;

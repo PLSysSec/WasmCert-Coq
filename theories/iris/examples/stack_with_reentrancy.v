@@ -15,7 +15,7 @@ Unset Printing Implicit Defensive.
 Close Scope byte_scope.
    
 
-Section Client.
+Section Client2.
 
  Context `{!wasmG Σ, !hvisG Σ, !hmsG Σ, !hasG Σ, !logrel_na_invs Σ}. 
 
@@ -28,6 +28,11 @@ Section Client.
      3 - pop
      4 - push 
      5 - map *)
+ (* Function 6 is a call_host that modifies the table *)
+ (* Function 7 is main *)
+ (* Function 8 is the square function *)
+ (* Function 9 is the *2 function *)
+ 
   Definition main :=
     [ BI_call 0 ;
       BI_tee_local 0 ;
@@ -44,12 +49,18 @@ Section Client.
       i32const 0 ;
       BI_get_local 0 ;
       BI_call 5 ; (* Map square onto the stack *)
+      i32const 0 ;
+      i32const 9 ;
+      BI_call 6 ; (* Modify the table to now have *2 as the 0th function *)
+      i32const 0 ;
       BI_get_local 0 ;
-      BI_call 3 ; (* Pop 36 *)
+      BI_call 5 ; (* Map *2 onto the stack *)
       BI_get_local 0 ;
-      BI_call 3 ; (* Pop 16 *)
-      BI_binop T_i32 (Binop_i BOI_sub) ; (* Subtract those two, to get 20 *)
-      BI_set_global 0 (* Assign the 0th global the value 20 *)
+      BI_call 3 ; (* Pop 72 *)
+      BI_get_local 0 ;
+      BI_call 3 ; (* Pop 32 *)
+      BI_binop T_i32 (Binop_i BOI_sub) ; (* Subtract the two, to get 40 *)
+      BI_set_global 0 (* Assign the 0th gloabl to 40 *)
     ].
 
   Definition square :=
@@ -57,6 +68,10 @@ Section Client.
       BI_get_local 0 ;
       BI_binop T_i32 (Binop_i BOI_mul) ].
 
+  Definition times_two :=
+    [ BI_get_local 0 ;
+      i32const 2 ;
+      BI_binop T_i32 (Binop_i BOI_mul) ]. 
 
   
   Definition client_module :=
@@ -73,17 +88,22 @@ Section Client.
           modfunc_type := Mk_typeidx 2 ;
           modfunc_locals := [] ;
           modfunc_body := square
-        |} ] ;
-      mod_tables := [] ; 
+        |} ;
+        {|
+          modfunc_type := Mk_typeidx 2 ;
+          modfunc_locals := [] ;
+          modfunc_body := times_two
+        |}] ;
+      mod_tables := [] ; (* the table is imported, and thus only mentionned later *)
       mod_mems := [] ;
       mod_globals := [ {| modglob_type := {| tg_t := T_i32 ;
                                             tg_mut := MUT_mut |} ;
                          modglob_init := [i32const 0] |} ] ;
       mod_elem := [ {| modelem_table := Mk_tableidx 0 ;
                       modelem_offset := [i32const 0] ;
-                      modelem_init := [Mk_funcidx 7] |} ] ;
+                      modelem_init := [Mk_funcidx 8] |} ] ; (* the (imported) table originally contains the square function *)
       mod_data := [] ;
-      mod_start := Some {| modstart_func := Mk_funcidx 6 |} ;
+      mod_start := Some {| modstart_func := Mk_funcidx 7 |} ;
       mod_imports := [
         {|
           imp_module := list_byte_of_string "Stack" ;
@@ -114,6 +134,9 @@ Section Client.
           imp_name := list_byte_of_string "stack_map" ;
           imp_desc := ID_func 3
         |} ;
+        {| imp_module := list_byte_of_string "Host" ;
+          imp_name := list_byte_of_string "modify_table" ;
+          imp_desc := ID_func 3 |} ;
         {| imp_module := list_byte_of_string "Stack" ;
           imp_name := list_byte_of_string "table" ;
           imp_desc := ID_table {| tt_limits := {| lim_min := 1%N ; lim_max := None |} ;
@@ -134,10 +157,10 @@ Section Client.
 
 
   Lemma module_typing_client :
-    module_typing client_module expts [ET_glob {| tg_t := T_i32 ; tg_mut := MUT_mut |} ].
+    module_typing client_module (take 6 expts ++ [ET_func (Tf [T_i32 ; T_i32] [])] ++ drop 6 expts) [ET_glob {| tg_t := T_i32 ; tg_mut := MUT_mut |} ].
   Proof.
     unfold module_typing => /=.
-    exists [ Tf [] [] ; Tf [T_i32] [T_i32] ],
+    exists [ Tf [] [] ; Tf [T_i32] [T_i32] ; Tf [T_i32] [T_i32] ],
       [ {| tg_t := T_i32 ; tg_mut := MUT_mut |} ].
     repeat split => //.
     repeat (apply Forall2_cons ; repeat split => //) => /=.
@@ -174,6 +197,18 @@ Section Client.
       apply bet_weakening.
       by apply bet_get_local.
       bet_first bet_call.
+      bet_first bet_const => /=.
+      eapply bet_composition_front.
+      rewrite (separate1 T_i32 []).
+      apply bet_weakening.
+      apply bet_const => //.
+      bet_first bet_call => //.
+      bet_first bet_const => /=.
+      eapply bet_composition_front.
+      rewrite (separate1 T_i32 []).
+      apply bet_weakening.
+      by apply bet_get_local.
+      bet_first bet_call. 
       bet_first bet_get_local.
       bet_first bet_call.
       eapply bet_composition_front.
@@ -193,6 +228,13 @@ Section Client.
       by apply bet_get_local.
       apply bet_binop.
       apply Binop_i32_agree.
+    - bet_first bet_get_local.
+      eapply bet_composition_front.
+      rewrite (separate1 T_i32 []).
+      apply bet_weakening.
+      by apply bet_const.
+      apply bet_binop.
+      apply Binop_i32_agree. 
     - apply Forall2_cons.
       repeat split => //.
       by apply bet_const.
@@ -216,12 +258,17 @@ Section Client.
     { by exists []. }
   Qed.
 
-    Definition stack_instantiate :=
+
+  Definition stack_instantiate :=
     [ ID_instantiate [0%N ; 1%N ; 2%N ; 3%N ; 4%N ; 5%N ; 6%N] 0 [] ;
-      ID_instantiate [7%N] 1 [0%N ; 1%N ; 2%N ; 3%N ; 4%N ; 5%N ; 6%N] ].
+      ID_instantiate [7%N] 1 [0%N ; 1%N ; 2%N ; 3%N ; 4%N ; 5%N ; 8%N ; 6%N] ].
+  (* vis 8 is the host import *)
 
 
-
+Notation " n ↦[ha]{ q } f" := (ghost_map_elem (V := host_action) haGName n q f%V)
+                                (at level 20, q at level 5, format " n ↦[ha]{ q } f") .
+Notation " n ↦[ha] f" := (ghost_map_elem (V := host_action) haGName n (DfracOwn 1) f%V)
+                           (at level 20, format " n ↦[ha] f") .
     Notation " n ↪[vis]{ q } v" := (ghost_map_elem (V := module_export) visGName n q v%V)
                                  (at level 20, q at level 5, format " n ↪[vis]{ q } v") .
 Notation " n ↪[vis] v" := (ghost_map_elem (V := module_export) visGName n (DfracOwn 1) v%V)
@@ -233,27 +280,36 @@ Notation " n ↪[mods] v" := (ghost_map_elem (V := module) msGName n (DfracOwn 1
                              (at level 20, format " n ↪[mods] v").
 
   
+(* How to populate the table with the desired call_host at position 1 ? *)
 
-Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
-   ↪[frame] empty_frame -∗
-    0%N ↪[mods] stack_module -∗
+Lemma instantiate_stack_client_spec (s: stuckness) E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 name idmodtab :
+  ↪[frame] empty_frame -∗
+  0%N ↪[mods] stack_module -∗
      1%N ↪[mods] client_module -∗
      ( [∗ list] k↦hvk ∈ [hv0 ; hv1 ; hv2 ; hv3 ; hv4 ; hv5 ; hv6 ; hv7], N.of_nat k↪[vis] hvk) -∗
+     (* The next lines assert that the host import does indeed point to the desired
+        modify_table host-instruction *)
+     8%N ↪[vis] {| modexp_name := name ;
+                  modexp_desc := MED_func (Mk_funcidx idmodtab) |} -∗
+     N.of_nat idmodtab ↦[wf] FC_func_host (Tf [T_i32 ; T_i32] []) (Mk_hostfuncidx 0) -∗
+     0%N ↦[ha] HA_modify_table -∗
+
+     
      WP ((stack_instantiate , []) : host_expr)
      @ E
-            {{ v, ⌜ v = immHV [] ⌝ ∗ 
-               ↪[frame] empty_frame ∗
+     {{ v, ⌜ v = immHV [] ⌝ ∗
+              ↪[frame] empty_frame ∗
                 0%N ↪[mods] stack_module ∗
                  1%N ↪[mods] client_module ∗
                  ∃ idg name,
                    7%N ↪[vis] {| modexp_name := name ;
                                 modexp_desc := MED_global (Mk_globalidx idg) |} ∗
-                    (N.of_nat idg ↦[wg] {| g_mut := MUT_mut ; g_val := value_of_int 20%Z |} ∨
+                    (N.of_nat idg ↦[wg] {| g_mut := MUT_mut ; g_val := value_of_int 40%Z |} ∨
                        N.of_nat idg ↦[wg] {| g_mut := MUT_mut ; g_val := value_of_int (-1)%Z |}) }}.
   Proof.
-    iIntros "Hemptyframe Hmod0 Hmod1 (Hvis0 & Hvis1 & Hvis2 & Hvis3 & Hvis4 & Hvis5 & Hvis6 & Hvis7 &  _)".
+    iIntros "Hemptyframe Hmod0 Hmod1 (Hvis0 & Hvis1 & Hvis2 & Hvis3 & Hvis4 & Hvis5 & Hvis6 & Hvis7 &  _) Hvis8 Hwfcallhost Hha".
     iApply (wp_seq_host_nostart NotStuck
-              with "[] [$Hmod0] [Hvis0 Hvis1 Hvis2 Hvis3 Hvis4 Hvis5 Hvis6]") => //.
+             with "[] [$Hmod0] [Hvis0 Hvis1 Hvis2 Hvis3 Hvis4 Hvis5 Hvis6]") => //.
     2: { iIntros "Hmod0".
       iApply weakestpre.wp_mono ;
         last iApply (instantiate_stack_spec
@@ -264,13 +320,13 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
           iSplitL "Hvis3" ; first done.
           iSplitL "Hvis4" ; first done.
           iSplitL "Hvis5" ; first done.
-          by iSplitL. }
-      iIntros (v) "[Hvsucc [? H]]".
+            by iSplitL. }
+      iIntros (v) "[Hsuccv [? H]]".
       iFrame.
-      iCombine "Hvsucc H" as "H".
-      by iApply "H".
+      iCombine "Hsuccv H" as "H".
+      by iExact "H".
     }
-    { by iIntros "(% & _)". }
+    { by iIntros "(% & ?)". }
     - iIntros (w) "Hes1 Hmod0".
       iDestruct "Hes1" as "(-> & Hes1)".
       iDestruct "Hes1" as (idf0 idf1 idf2 idf3 idf4 idf5 idt) "Hes1".
@@ -280,18 +336,103 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
       iDestruct "Hes1" as (l0 l1 l2 l3 l4 l5) "Hes1".
       iDestruct "Hes1" as (tab isStack nextStackAddrIs)
                             "(Himport & Himp_type & %Hnodup & %Htab & Hnextaddr & #Hspec0 & #Hspec1 & #Hspec2 & #Hspec3 & #Hspec4 & #Hspec5 & #Hspec6)".
+
+
+      (* Extract the individual point-tos earlier, so we can establish the uniqueness of imports, which is true anyway. This also saves us from needing to prove this twice later. *)
+      iDestruct "Himp_type" as "[_ (H0&H1&H2&H3&H4&H5&Ht&_)]".
+      simpl.
+      iDestruct "H0" as (cl0) "[H0 %H0]".
+      iDestruct "H1" as (cl1) "[H1 %H1]".
+      iDestruct "H2" as (cl2) "[H2 %H2]".
+      iDestruct "H3" as (cl3) "[H3 %H3]".
+      iDestruct "H4" as (cl4) "[H4 %H4]".
+      iDestruct "H5" as (cl5) "[H5 %H5]".
+      iDestruct (mapsto_frac_ne with "H0 Hwfcallhost") as "%Hc0" ; first by eauto.
+      iDestruct (mapsto_frac_ne with "H1 Hwfcallhost") as "%Hc1" ; first by eauto.
+      iDestruct (mapsto_frac_ne with "H2 Hwfcallhost") as "%Hc2" ; first by eauto.
+      iDestruct (mapsto_frac_ne with "H3 Hwfcallhost") as "%Hc3" ; first by eauto.
+      iDestruct (mapsto_frac_ne with "H4 Hwfcallhost") as "%Hc4" ; first by eauto.
+      iDestruct (mapsto_frac_ne with "H5 Hwfcallhost") as "%Hc5" ; first by eauto.
+      iDestruct (mapsto_frac_ne with "H0 H1") as "%H01" ; first by eauto.
+      iDestruct (mapsto_frac_ne with "H0 H2") as "%H02" ; first by eauto.
+      iDestruct (mapsto_frac_ne with "H0 H3") as "%H03" ; first by eauto.
+      iDestruct (mapsto_frac_ne with "H0 H4") as "%H04" ; first by eauto.
+      iDestruct (mapsto_frac_ne with "H0 H5") as "%H05" ; first by eauto.
+      iDestruct (mapsto_frac_ne with "H1 H2") as "%H12" ; first by eauto.
+      iDestruct (mapsto_frac_ne with "H1 H3") as "%H13" ; first by eauto.
+      iDestruct (mapsto_frac_ne with "H1 H4") as "%H14" ; first by eauto.
+      iDestruct (mapsto_frac_ne with "H1 H5") as "%H15" ; first by eauto.
+      iDestruct (mapsto_frac_ne with "H2 H3") as "%H23" ; first by eauto.
+      iDestruct (mapsto_frac_ne with "H2 H4") as "%H24" ; first by eauto.
+      iDestruct (mapsto_frac_ne with "H2 H5") as "%H25" ; first by eauto.
+      iDestruct (mapsto_frac_ne with "H3 H4") as "%H34" ; first by eauto.
+      iDestruct (mapsto_frac_ne with "H3 H5") as "%H35" ; first by eauto.
+      iDestruct (mapsto_frac_ne with "H4 H5") as "%H45" ; first by eauto.
+
+
+      (* It's possible to do this later, but easier to just get it out of the way now so we don't need to prove it again later; set_solver is pretty slow *)
+      simpl in Hnodup.
+      assert (NoDup [MED_func (Mk_funcidx idf0); MED_func (Mk_funcidx idf1);
+             MED_func (Mk_funcidx idf2); MED_func (Mk_funcidx idf3);
+             MED_func (Mk_funcidx idf4); MED_func (Mk_funcidx idf5);
+             MED_func (Mk_funcidx idmodtab);
+             MED_table (Mk_tableidx idt)]) as Hnodup2.
+      { (* A trick to make set_solver faster -- it's really slow when there are a lot of premises in the context *)
+        clear - Hc0 Hc1 Hc2 Hc3 Hc4 Hc5 H01 H02 H03 H04 H05 H12 H13 H14 H15 H23 H24 H25 H34 H35 H45.
+        repeat (apply NoDup_cons; split => //; first by set_solver).
+        by apply NoDup_nil.
+      }
+
       iFrame "Hmod0".
-      iApply (instantiation_spec_operational_start with "[$Hemptyframe] [Hmod1 Himport Himp_type Hvis7]") ; try exact module_typing_client.
+      iApply (instantiation_spec_operational_start with "[$Hemptyframe] [Hwfcallhost Hmod1 Himport H0 H1 H2 H3 H4 H5 Ht Hvis7 Hvis8]") ; try exact module_typing_client.
     - by unfold client_module.
     - by apply module_restrictions_client.
+      (* Because of the extra host import, a lot of the clever work done 
+         in stack_instantiation.v is now unusable, so we must destruct the 
+         hypotheses that were usefull in the no-reentrancy example *)
     - unfold instantiation_resources_pre.
+      unfold import_resources_host.
+      instantiate (5 := [_;_;_;_;_;_;_;_]).
+      iSplitL "Hmod1" ; first done.
+      iSplitL "Himport Hvis8".
+      iDestruct "Himport" as "(H0 & H1 & H2 & H3 & H4 & H5 & H6 & _)".
       iFrame.
-    - unfold export_ownership_host => /=.
-      unfold instantiation_resources_pre_wasm.
-      rewrite irwt_nodup_equiv => //.
-      iFrame "Himp_type".
-      repeat iSplit.
-    
+      done. 
+    - unfold instantiation_resources_pre_wasm.
+      unfold export_ownership_host => /=.
+      instantiate ( 1 := ∅) .
+      instantiate ( 1 := <[ N.of_nat idt := tab ]> ∅) .
+      instantiate ( 1 := ∅) . 
+      instantiate (1:= (<[N.of_nat idf0:=FC_func_native i0 (Tf [] [T_i32]) l0 f0]>
+            (<[N.of_nat idf1:=FC_func_native i0 (Tf [T_i32] [T_i32]) l1 f1]>
+               (<[N.of_nat idf2:=FC_func_native i0 (Tf [T_i32] [T_i32]) l2 f2]>
+                  (<[N.of_nat idf3:=FC_func_native i0 (Tf [T_i32] [T_i32]) l3 f3]>
+                     (<[N.of_nat idf4:=FC_func_native i0 (Tf [T_i32; T_i32] []) l4 f4]>
+                        (<[N.of_nat idf5:=FC_func_native i0 (Tf [T_i32; T_i32] []) l5 f5]>
+                         (<[ N.of_nat idmodtab := FC_func_host (Tf [T_i32; T_i32] []) (Mk_hostfuncidx 0) ]> ∅)))))))).
+      iSplitL "H0 H1 H2 H3 H4 H5 Ht Hwfcallhost".
+      rewrite irwt_nodup_equiv => //=.
+      unfold import_resources_wasm_typecheck_sepL2. 
+      repeat iSplit. iPureIntro. simpl. repeat rewrite dom_insert. done.
+      simpl. by rewrite dom_insert.
+      done. done.
+      cbn.
+      repeat (rewrite lookup_insert + (rewrite lookup_insert_ne ; last assumption)).
+      repeat (rewrite lookup_insert in H0 + (rewrite lookup_insert_ne in H0; last assumption)).
+      repeat (rewrite lookup_insert in H1 + (rewrite lookup_insert_ne in H1 ; last assumption)).
+      repeat (rewrite lookup_insert in H2 + (rewrite lookup_insert_ne in H2 ; last assumption)).
+      repeat (rewrite lookup_insert in H3 + (rewrite lookup_insert_ne in H3 ; last assumption)).
+      repeat (rewrite lookup_insert in H4 + (rewrite lookup_insert_ne in H4 ; last assumption)).
+      repeat (rewrite lookup_insert in H5 + (rewrite lookup_insert_ne in H5 ; last assumption)).
+      iSplitL "H0"; first by iExists _ ; iFrame.
+      iSplitL "H1" ; first by iExists _ ; iFrame.
+      iSplitL "H2" ; first by iExists _ ; iFrame.
+      iSplitL "H3" ; first by iExists _ ; iFrame.
+      iSplitL "H4" ; first by iExists _ ; iFrame.
+      iSplitL "H5" ; first by iExists _ ; iFrame. 
+      iFrame.
+      iExists _. iFrame.
+      done.
       iPureIntro ; unfold module_elem_bound_check_gmap ; simpl.
       apply Forall_cons.
       split ; last done.
@@ -299,9 +440,8 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
       rewrite lookup_insert.
       done.
       iPureIntro ; unfold module_data_bound_check_gmap ; simpl ; done.
+    - repeat iSplit => //.
       by iExists _.
-      done.
-      done.
     - iIntros (idnstart) "Hf Hres".
       unfold instantiation_resources_post.
       iDestruct "Hres" as "(Hmod1 & Himphost & Hres)".
@@ -314,11 +454,13 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
       unfold module_inst_resources_func, module_inst_resources_tab,
         module_inst_resources_mem, module_inst_resources_glob => /=.
       unfold big_sepL2 => /=.
-      do 7 (destruct inst_funcs as [| ? inst_funcs] ; first by iExFalso ; iExact "Hexpwf").
+      do 8 (destruct inst_funcs as [| ? inst_funcs] ; first by iExFalso ; iExact "Hexpwf").
       simpl.
       iDestruct "Hexpwf" as "[Hwfcl Hexpwf]".
       destruct inst_funcs ; first by iExFalso ; iExact "Hexpwf".
       iDestruct "Hexpwf" as "[Hwfsq Hexpwf]".
+      destruct inst_funcs ; first by iExFalso ; iExact "Hexpwf".
+      iDestruct "Hexpwf" as "[Hwfdbl Hexpwf]".
       destruct inst_funcs ; last by iExFalso ; iExact "Hexpwf".
       destruct inst_memory ; last by iExFalso ; iExact "Hexpwm".
 
@@ -354,33 +496,20 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
 
       
       iDestruct "Hexphost" as "[Hexphost _]".
-      iDestruct "Hexphost" as (name) "Hexphost" => /=.
-
-      rewrite irwt_nodup_equiv; last by [].
-
-      iDestruct "Himpwasm" as "(%Hdom & Himpw0 & Himpw1 & Himpw2 & Himpw3 & Himpw4 & Himpw5 & Htab & _)". 
+      iDestruct "Hexphost" as (nameh) "Hexphost" => /=.
+      rewrite irwt_nodup_equiv => //.
+      unfold import_resources_wasm_typecheck_sepL2 => /=.
+      clear H0 H1 H2 H3 H4 H5.
+      clear cl0 cl1 cl2 cl3 cl4 cl5.
+      iDestruct "Himpwasm" as "(% & Himpw0 & Himpw1 & Himpw2 & Himpw3 & Himpw4 & Himpw5 & Himpw6 & Htab & _)".
       iDestruct "Himpw0" as (cl0) "[Himpfcl0 %Hcltype0]".
       iDestruct "Himpw1" as (cl1) "[Himpfcl1 %Hcltype1]".
       iDestruct "Himpw2" as (cl2) "[Himpfcl2 %Hcltype2]".
       iDestruct "Himpw3" as (cl3) "[Himpfcl3 %Hcltype3]".
       iDestruct "Himpw4" as (cl4) "[Himpfcl4 %Hcltype4]".
       iDestruct "Himpw5" as (cl5) "[Himpfcl5 %Hcltype5]".
+      iDestruct "Himpw6" as (cl6) "[Himpfcl6 %Hcltype6]".
       iDestruct "Htab" as (tab0 tt) "[Htab %Htab0]".
-      iDestruct (mapsto_frac_ne with "Himpfcl0 Himpfcl1") as "%H01" ; first by eauto.
-      iDestruct (mapsto_frac_ne with "Himpfcl0 Himpfcl2") as "%H02" ; first by eauto.
-      iDestruct (mapsto_frac_ne with "Himpfcl0 Himpfcl3") as "%H03" ; first by eauto.
-      iDestruct (mapsto_frac_ne with "Himpfcl0 Himpfcl4") as "%H04" ; first by eauto.
-      iDestruct (mapsto_frac_ne with "Himpfcl0 Himpfcl5") as "%H05" ; first by eauto.
-      iDestruct (mapsto_frac_ne with "Himpfcl1 Himpfcl2") as "%H12" ; first by eauto.
-      iDestruct (mapsto_frac_ne with "Himpfcl1 Himpfcl3") as "%H13" ; first by eauto.
-      iDestruct (mapsto_frac_ne with "Himpfcl1 Himpfcl4") as "%H14" ; first by eauto.
-      iDestruct (mapsto_frac_ne with "Himpfcl1 Himpfcl5") as "%H15" ; first by eauto.
-      iDestruct (mapsto_frac_ne with "Himpfcl2 Himpfcl3") as "%H23" ; first by eauto.
-      iDestruct (mapsto_frac_ne with "Himpfcl2 Himpfcl4") as "%H24" ; first by eauto.
-      iDestruct (mapsto_frac_ne with "Himpfcl2 Himpfcl5") as "%H25" ; first by eauto.
-      iDestruct (mapsto_frac_ne with "Himpfcl3 Himpfcl4") as "%H34" ; first by eauto.
-      iDestruct (mapsto_frac_ne with "Himpfcl3 Himpfcl5") as "%H35" ; first by eauto.
-      iDestruct (mapsto_frac_ne with "Himpfcl4 Himpfcl5") as "%H45" ; first by eauto.
       rewrite lookup_insert in Hcltype0.
       destruct Hcltype0 as [Hcl _] ; inversion Hcl ; subst ; clear Hcl.
       rewrite lookup_insert_ne in Hcltype1 ; last assumption.
@@ -398,6 +527,9 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
       do 5 (rewrite lookup_insert_ne in Hcltype5 ; last assumption).
       rewrite lookup_insert in Hcltype5.
       destruct Hcltype5 as [Hcl _] ; inversion Hcl ; subst ; clear Hcl.
+      do 6 (rewrite lookup_insert_ne in Hcltype6 ; last assumption).
+      rewrite lookup_insert in Hcltype6.
+      destruct Hcltype6 as [Hcl _] ; inversion Hcl ; subst ; clear Hcl.
       (* Now for our last export (the table), we have a little more work to do,
          because we are populating it. This is where the knowledge of the exact
          elements of inst_tab (not just its length) is important *)
@@ -436,19 +568,22 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
       simpl in Hstart.
       apply b2p in Hstart.
       inversion Hstart ; subst ; clear Hstart.
-      iApply weakestpre.wp_wand_l. iSplitR ; last iApply wp_lift_wasm.
+      iApply wp_lift_wasm.
+      (*
+
+      iSplitR ; last iApply wp_lift_wasm.
       iIntros (v).
-      instantiate ( 1 := λ v, (⌜ v = immHV [] ⌝ ∗ ↪[frame] empty_frame ∗ 1%N↪[mods]client_module ∗
+      instantiate ( 1 := λ v, (1%N↪[mods]client_module ∗
   (∃ (idg : nat) (name7 : datatypes.name),
       7%N↪[vis] {| modexp_name := name7; modexp_desc := MED_global (Mk_globalidx idg) |} ∗
-     (N.of_nat idg↦[wg] {| g_mut := MUT_mut; g_val := value_of_int 20 |}
+     (N.of_nat idg↦[wg] {| g_mut := MUT_mut; g_val := value_of_int 40 |}
       ∨ N.of_nat idg↦[wg] {| g_mut := MUT_mut; g_val := value_of_int (-1) |})))%I) => //=.
-      iIntros "H" ; done. 
+      iIntros "H" ; done.  *)
       
 
       
       iApply wp_wand_r.
-      iSplitR "Hmod1".
+      iSplitR "Hmod1 Hha Himpfcl1 Himpfcl2 Himpfcl3". 
       rewrite - (app_nil_l [AI_invoke idnstart]).
       iApply (wp_invoke_native with "Hf Hwfcl").
       done. done. done.
@@ -460,7 +595,7 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
       done. done. done. done.
       iIntros "!> Hf".
       iApply (wp_label_bind with
-               "[Hwg Ht0 Hwfsq Hf Himpfcl0 Himpfcl1 Himpfcl2 Himpfcl3 Himpfcl4 Himpfcl5 Hexphost Hnextaddr]") ; last first.
+               "[Hwg Ht0 Hwfsq Hwfdbl Hf Himpfcl0 Himpfcl4 Himpfcl5 Hexphost Hnextaddr Himpfcl6]") ; last first.
       iPureIntro.
       unfold lfilled, lfill => /=.
       instantiate (5 := []) => /=.
@@ -482,11 +617,11 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
           done.
           iIntros (v0) "(H & Himpfcl0 & Hf)".
           iFrame.
-          instantiate (1 := λ v0, ((( ∃ k : Z, ⌜v0 = immV [value_of_int k]⌝ ∗
+          instantiate (1 := λ v0, (( ∃ k : Z, ⌜v0 = immV [value_of_int k]⌝ ∗
                                                          (⌜k = (-1)%Z⌝ ∗ nextStackAddrIs 0 ∨  ⌜ (0 ≤ k)%Z ∧ (k + Z.pos (64 * 1024) ≤ two32)%Z⌝ ∗ isStack k [] ∗ nextStackAddrIs (0 + Pos.to_nat (64 * 1024)))) ∗ 
-                                     N.of_nat idf0↦[wf]FC_func_native i0 (Tf [] [T_i32]) l0 f0) ∗ ↪[frame] _)%I). 
+                                     N.of_nat idf0↦[wf]FC_func_native i0 (Tf [] [T_i32]) l0 f0 ∗ ↪[frame] _)%I). 
           iFrame. }
-        iIntros (w0) "[[H Himpfcl0] Hf]". 
+        iIntros (w0) "(H & fHimpfcl0 & Hf)". 
         iDestruct "H" as (k) "[-> H]".
         iSimpl.
         rewrite (separate2 (AI_basic (i32const k))).
@@ -510,7 +645,7 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
         instantiate (1 := λ v, (⌜ v = immV [VAL_int32 (Wasm_int.Int32.repr k)] ⌝
                                            ∗ ↪[frame] _)%I). 
         by iFrame.
-        by iIntros "!> [%H _]".
+        by iIntros "!> [% _]".
         iIntros (w0) "[-> Hf]".
         iSimpl.
         rewrite (separate3 (AI_basic (i32const k))).
@@ -537,9 +672,9 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
         iSplitL "Hf Hwg". 
         instantiate (1:= λ v1, (( ⌜ v1 = immV [] ⌝ ∗
                                               ⌜ (k <> -1)%Z ⌝ ∗
-                                              N.of_nat g↦[wg] {| g_mut := MUT_mut ; g_val := vg |} ∨
-                                    ⌜ exists sh, v1 = retV sh ⌝ ∗
-                                                      N.of_nat g↦[wg] {| g_mut := MUT_mut ; g_val := value_of_int (-1)%Z |}) ∗
+                                              N.of_nat g↦[wg] {| g_mut := MUT_mut ; g_val := vg |} ∨ 
+                                   ⌜ exists sh, v1 = retV sh ⌝ ∗
+                                                      N.of_nat g↦[wg] {| g_mut := MUT_mut ; g_val := value_of_int (-1)%Z |})  ∗
                                                                                                                              ↪[frame] _)%I ).         
         destruct ( decide ( k = - 1)%Z ).
         + { subst. iSimpl.
@@ -578,11 +713,11 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
             iRight.
             iFrame.
             iPureIntro ; by eexists _.
-            by iIntros "[[%H _] _]". }
+            by iIntros "[[% _] _]". }
         + { rewrite Wasm_int.Int32.eq_false.
             2:{ intro Habs ; inversion Habs.
-                rewrite Wasm_int.Int32.Z_mod_modulus_eq in H0.
-                rewrite Z.mod_small in H0.
+                rewrite Wasm_int.Int32.Z_mod_modulus_eq in H1.
+                rewrite Z.mod_small in H1.
                 subst.
                 unfold Wasm_int.Int32.modulus in Hk.
                 unfold Wasm_int.Int32.wordsize in Hk.
@@ -641,7 +776,7 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
             instantiate (1 := λ v, (⌜ v = immV [value_of_int 4%Z ; value_of_int k] ⌝ ∗
                                                ↪[frame] _)%I ). 
             by iFrame.
-          by iIntros "!> [%H _]".
+          by iIntros "!> [% _]".
           iIntros (w0) "[-> Hf]".
           iSimpl.
           rewrite (separate3 (AI_basic (i32const 4))).
@@ -668,11 +803,11 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
           by destruct Hk2 ; lia.
           iIntros (w0) "(-> & Hs & Himpfcl4 & Hf)".
           iFrame.
-          instantiate (1 := λ v, ((⌜ v = immV [] ⌝ ∗
+          instantiate (1 := λ v, (⌜ v = immV [] ⌝ ∗
                                              isStack k [ (Wasm_int.int_of_Z i32m 4)] ∗
-                                             N.of_nat idf4↦[wf]FC_func_native i0 (Tf [T_i32 ; T_i32] []) l4 f4) ∗ ↪[frame] _)%I).
+                                             N.of_nat idf4↦[wf]FC_func_native i0 (Tf [T_i32 ; T_i32] []) l4 f4 ∗ ↪[frame] _)%I).
           by iFrame.
-          iIntros (w0) "[(-> & Hs & Himpfcl4) Hf]".
+          iIntros (w0) "(-> & Hs & Himpfcl4 & Hf)".
           iSimpl.
           rewrite (separate2 (AI_basic (i32const _))).
           iApply wp_seq.
@@ -693,7 +828,7 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
           instantiate (1 := λ v, (⌜ v = immV _ ⌝ ∗
                                              ↪[frame] _)%I).  
           by iFrame.
-          by iIntros "!> [%H _]".
+          by iIntros "!> [% _]".
           iIntros (w0) "[-> Hf]".
           iSimpl.
           rewrite (separate3 (AI_basic (i32const 6))).
@@ -720,11 +855,11 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
           by destruct Hk2 ; lia.
           iIntros (w0) "(-> & Hs & Himpfcl4 & Hf)".
           iFrame.
-          instantiate (1 := λ v, ((⌜ v = immV [] ⌝ ∗
+          instantiate (1 := λ v, (⌜ v = immV [] ⌝ ∗
                                              isStack k [_;_] ∗
-                                             N.of_nat idf4↦[wf]FC_func_native i0 (Tf [T_i32 ; T_i32] []) l4 f4) ∗ ↪[frame] _)%I).
+                                             N.of_nat idf4↦[wf]FC_func_native i0 (Tf [T_i32 ; T_i32] []) l4 f4 ∗ ↪[frame] _)%I).
           by iFrame.
-          iIntros (w0) "[(-> & Hs & Himpfcl4) Hf]".
+          iIntros (w0) "(-> & Hs & Himpfcl4 & Hf)".
           iSimpl.
           rewrite (separate2 (AI_basic _)).
           iApply wp_seq.
@@ -742,7 +877,7 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
           by iIntros "!> [% _]".
           iIntros (v0) "[-> Hf]".
           iSimpl.
-          rewrite (separate3 (AI_basic (i32const 0))).
+          rewrite (separate3 (AI_basic (i32const 0)) (AI_basic (i32const k))).
           iApply wp_seq.
           iSplitR ; last first.
           iSplitL "Hf Himpfcl5 Hs Ht0 Hwfsq".
@@ -839,13 +974,13 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
           iApply (wp_frame_value with "Hf") ; first done.
           done.
           iNext.
-          by instantiate (1 := λ x, (⌜ x = immV _⌝ ∗ N.of_nat f12 ↦[wf] _)%I) ; iFrame.
+          by instantiate (1 := λ x, (⌜ x = immV _⌝ ∗ N.of_nat f13 ↦[wf] _)%I) ; iFrame.
           all : try by iIntros "[% _]".
           iIntros (v0) "[[-> Hcl] Hf]".
           iApply "HΛ".
           iFrame.
           by iExists _.
-          iIntros (w0) "(-> & H & Hwimpcl5 & Hf & Ht & Ha)".
+          iIntros (w0) "(-> & H & Hwimpcl5 & Hf & Ht0 & Hwfsq)".
           iDestruct "H" as (s') "[Hs Hs']".
           destruct s' ; first by iExFalso ; iExact "Hs'".
           iDestruct "Hs'" as "[-> Hs']".
@@ -853,25 +988,15 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
           iDestruct "Hs'" as "[-> Hs']".
           destruct s' ; last by iExFalso ; iExact "Hs'".
           iFrame.
-          by instantiate (1 := λ x, ((⌜ x = immV _ ⌝ ∗ isStack _ _ ∗ N.of_nat idf5 ↦[wf] _) ∗ ↪[frame] _)%I) ; iFrame.
-          iIntros (w0) "[(-> & Hs & Himpfcl5) Hf]".
+          by instantiate (1 := λ x, (⌜ x = immV _ ⌝ ∗ isStack _ _ ∗ N.of_nat idf5 ↦[wf] _ ∗ N.of_nat idt ↦[wt][ _ ] _ ∗ N.of_nat f13 ↦[wf] _ ∗↪[frame] _)%I) ; iFrame.
+          iIntros (w0) "(-> & Hs & Himpfcl5 & Htab0 & Hwfsq & Hf)".
           iSimpl.
-          rewrite (separate1 (AI_basic _)).
+          rewrite (separate3 (AI_basic _)).
           iApply wp_seq.
           iSplitR ; last first.
-          iSplitL "Hf".
-          iApply (wp_get_local with "[] [$Hf]").
-          done.
-          instantiate (1 := λ v, ⌜v = immV [value_of_int k]⌝%I).
-          done.
-          iIntros (v0) "[-> Hf]".
-          iSimpl.
-          rewrite (separate2 (AI_basic (i32const _))).
-          iApply wp_seq.
-          iSplitR ; last first.
-          iSplitL "Himpfcl3 Hf Hs".
-          rewrite (separate1 (AI_basic (i32const _))).
-          rewrite - (app_nil_r [AI_basic (BI_call 3)]).
+          iSplitL "Hf Himpfcl6".
+          rewrite (separate2 (AI_basic _)).
+          rewrite - (app_nil_r [AI_basic (BI_call _)]).
           iApply wp_wasm_empty_ctx.
           iApply wp_base_push => //.
           iApply (wp_call_ctx with "Hf") => //.
@@ -879,149 +1004,74 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
           iApply wp_base_pull.
           rewrite app_nil_r.
           iApply wp_wasm_empty_ctx.
-          iApply ("Hspec3"  with "[Hs Hf Himpfcl3]").
+          iApply (wp_invoke_host with "Himpfcl6 Hf").
+          instantiate (1 := [_;_]) => //.
+          done.
+          done.
+          iIntros "!> Himpfcl6 Hf".
+          iApply wp_value.
+          unfold IntoVal.
+          apply of_to_val => //.
           iFrame.
-          iSimpl.
-          repeat iSplit ; iPureIntro => //.
-          by destruct Hk2.
-          unfold Wasm_int.Int32.max_unsigned, Wasm_int.Int32.modulus.
-          unfold Wasm_int.Int32.wordsize, Integers.Wordsize_32.wordsize.
-          replace (two_power_nat 32) with two32 ; last done.
-          by destruct Hk2 ; lia.
-          iIntros (w0) "(-> & Hs & Himpfcl3 & Hf)".
-          iFrame.
-          instantiate (1 := λ v, ((⌜ v = immV _ ⌝ ∗
-                                             isStack k _ ∗
-                                             N.of_nat idf3 ↦[wf] FC_func_native i0 (Tf [T_i32] [T_i32]) l3 f3)∗ ↪[frame] _)%I).
-          by iFrame.
-          iIntros (w0) "[(-> & Hs & Himpfcl3) Hf]".
-          iSimpl.
-          rewrite (separate2 (AI_basic (i32const _))).
-          iApply wp_seq.
-          iSplitR ; last first.
-          iSplitL "Hf".
-          rewrite (separate1 (AI_basic (i32const _))).
-          iApply wp_val_app.
-          done.
-          iSplitR ; last first.
-          iApply wp_wand_r.
-          iSplitL.
-          iApply (wp_get_local with "[] [$Hf]") => //.
-          instantiate (1 := λ v, ⌜v = immV [value_of_int k]⌝%I).
-          done.
-          iIntros (v0) "[-> Hf]".
-          iSimpl.
-          instantiate (1 := λ v, (⌜ v = immV _ ⌝ ∗
-                                             ↪[frame] _)%I). 
-          by iFrame.
-          by iIntros "!> [%H _]".
-          iIntros (w0) "[-> Hf]".
-          iSimpl.
-          rewrite (separate3 (AI_basic (i32const _))).
-          iApply wp_seq.
-          iSplitR ; last first.
-          iSplitL "Hf Hs Himpfcl3".
-          rewrite (separate1 (AI_basic (i32const _))).
-          iApply wp_val_app.
-          done.
-          iSplitR ; last first.
-          rewrite (separate1 (AI_basic (i32const _))).
-          rewrite - (app_nil_r [AI_basic (BI_call 3)]).
-          iApply wp_wasm_empty_ctx.
-          iApply wp_base_push => //.
-          iApply (wp_wand_ctx with "[Hf Hs Himpfcl3]").
-          iApply (wp_call_ctx with "Hf") => //.
-          iIntros "!> Hf".
-          iApply wp_base_pull.
-          rewrite app_nil_r.
-          iApply wp_wasm_empty_ctx.
-          iApply ("Hspec3"  with "[Hs Hf Himpfcl3]").
-          iFrame.
-          iSimpl.
-          repeat iSplit ; iPureIntro => //.
-          by destruct Hk2.
-          unfold Wasm_int.Int32.max_unsigned, Wasm_int.Int32.modulus.
-          unfold Wasm_int.Int32.wordsize, Integers.Wordsize_32.wordsize.
-          replace (two_power_nat 32) with two32 ; last done.
-          by destruct Hk2 ; lia.
-          iIntros (w0) "(-> & Hs & Himpfcl3 & Hf)".
-          iFrame.
-          instantiate (1 := λ v, ((⌜ v = immV _ ⌝ ∗
-                                             isStack k [] ∗
-                                             N.of_nat idf3 ↦[wf] FC_func_native i0 (Tf [T_i32] [T_i32]) l3 f3)∗ ↪[frame] _)%I).
-          by iFrame.
-          iIntros (w0) "[(-> & Hs & Himpfcl3) Hf]".
-          iSimpl.
-          instantiate (1:= λ v, (⌜ v = immV _ ⌝ ∗
-                                            isStack k [] ∗
-                                            N.of_nat idf3 ↦[wf] FC_func_native i0 (Tf [T_i32] [T_i32]) l3 f3 ∗
-                                            ↪[frame] _)%I ). 
-          by iFrame.
-          by iIntros "!> [%H _]".
-          iIntros (w0) "(-> & Hs & Himpfcl3 & Hf)".
-          iSimpl.
-          rewrite (separate3 (AI_basic (i32const _)) (AI_basic (i32const _))).
-          iSimpl.
-          rewrite (separate3 (AI_basic (i32const _)) (AI_basic (i32const _))).
-          iApply wp_seq.
-          iSplitR ; last first.
-          iSplitL "Hf".
-          iApply (wp_binop with "Hf").
-          done.
-          iSimpl.
-          unfold Wasm_int.Int32.isub, Wasm_int.Int32.sub.
-          rewrite Wasm_int.Int32.unsigned_repr.
-          rewrite Wasm_int.Int32.unsigned_repr.
-          instantiate (1 := λ v, ⌜ v = immV _ ⌝%I).
-          done.
-          unfold Wasm_int.Int32.max_unsigned, Wasm_int.Int32.modulus.
-          unfold Wasm_int.Int32.wordsize, Integers.Wordsize_32.wordsize.
-          replace (two_power_nat 32) with two32 ; last done.
-          unfold two32.
-          lia.
-          unfold Wasm_int.Int32.max_unsigned, Wasm_int.Int32.modulus.
-          unfold Wasm_int.Int32.wordsize, Integers.Wordsize_32.wordsize.
-          replace (two_power_nat 32) with two32 ; last done.
-          unfold two32.
-          lia.
-          iIntros (w0) "[-> Hf]".
-          iSimpl.
-          iApply wp_wand_r.
-          iSplitL "Hf Hwg".
-          iApply (wp_set_global with "[] Hf Hwg").
-          done.
-          instantiate (1 := λ v, ⌜ v = immV [] ⌝%I).
-          by iNext.
-          iIntros (v0) "[[ -> Hwg] Hf]".
-          iSimpl.
+          by instantiate (1 := λ x, (⌜ x = callHostV _ _ _ _ ⌝ ∗ _ ↦[wf] _∗ ↪[frame] _)%I) ; iFrame.
+          iIntros (w0) "(-> & Himpfcl6 & Hf)".
+          iApply wp_value.
+          unfold IntoVal.
+          apply of_to_val => //=.
+          simpl.
           iIntros (lh) "%Hfill".
           unfold lfilled, lfill in Hfill ; simpl in Hfill.
-          apply b2p in Hfill ; subst.
-          iApply wp_wand_r.
-          iSplitL "Hf".
-          iApply (wp_label_value with "Hf").
-          done.
-          instantiate (1 := λ v, ⌜ v = immV [] ⌝%I).
-          done.
-          iIntros (v0) "[-> Hf]".
+          apply b2p in Hfill as ->.
+          iApply wp_value.
+          unfold IntoVal ; apply of_to_val => //=.
+          simpl.
           iExists _.
           iFrame.
           iIntros "Hf".
-          iSimpl.
-          iApply (wp_frame_value with "Hf").
-          done.
-          done.
-          all: try by iIntros "[% _]".
-          all: try by iIntros "[[% _] _]".
-          instantiate ( 1 := λ v, (⌜ v = immV [] ⌝ ∗ ∃ g, (N.of_nat g↦[wg] {| g_mut := MUT_mut ; g_val := value_of_int 20 |} ∨ N.of_nat g↦[wg] {| g_mut := MUT_mut ; g_val := value_of_int (-1) |}) ∗ 7%N ↪[vis] {|
-                                                                                                                                                                                                     modexp_name := name;
-                           modexp_desc :=
-                             MED_global (Mk_globalidx g)
-                         |} )%I ).
-          iNext.
-          iSplit ; first done.
-          iExists g.
-          iFrame. }
+          iApply wp_value.
+          unfold IntoVal ; apply of_to_val => //=.
+          simpl. iFrame.
+          instantiate (1 := λ x, (( N.of_nat f14 ↦[wf] _ ∗
+                                                   _ ↪[vis] _ ∗
+                                                   
+                                                   N.of_nat idf0 ↦[wf] _ ∗
+                                               
+                                                   N.of_nat idf4 ↦[wf] _ ∗
+                                                   N.of_nat idf5 ↦[wf] _ ∗
+                                                   _ ↦[wt][0%N] _ ∗
+                                                   N.of_nat f13 ↦[wf] _ ∗
+                                                   N.of_nat idmodtab ↦[wf] _
+                                                   ∗ ∃ k, ⌜ (0 <= k)%Z /\ (k + Z.pos (64 * 1024) <= two32)%Z ⌝ ∗ ⌜ x = callHostV (Tf [T_i32; T_i32] []) (Mk_hostfuncidx 0)
+       [VAL_int32 (Wasm_int.Int32.repr 0); VAL_int32 (Wasm_int.Int32.repr 9)]
+       (LL_local [] 0
+          {|
+            f_locs := [VAL_int32 (Wasm_int.Int32.repr k)];
+            f_inst :=
+              {|
+                inst_types :=
+                  [Tf [] []; Tf [] [T_i32]; Tf [T_i32] [T_i32]; Tf [T_i32; T_i32] []];
+                inst_funcs :=
+                  [idf0; idf1; idf2; idf3; idf4; idf5; idmodtab; idnstart; f13; f14];
+                inst_tab := [idt];
+                inst_memory := [];
+                inst_globs := [g]
+              |}
+          |}
+          (LL_label [] 0 []
+             (LL_base []
+                [AI_basic (BI_const (VAL_int32 (Wasm_int.Int32.repr 0)));
+                AI_basic (BI_get_local 0); AI_basic (BI_call 5);
+                AI_basic (BI_get_local 0); AI_basic (BI_call 3);
+                AI_basic (BI_get_local 0); AI_basic (BI_call 3);
+                AI_basic (BI_binop T_i32 (Binop_i BOI_sub)); 
+                 AI_basic (BI_set_global 0)]) []) []) ⌝ ∗
+       nextStackAddrIs _ ∗
+           _ ↦[wg] _ ∗
+       isStack k _
+                                                    ∨ ⌜ x = immV [] ⌝ ∗ _ ↦[wg] {| g_mut := MUT_mut; g_val := value_of_int (-1) |}) ∗ ↪[frame] _)%I).
+          
+          simpl. iFrame. iExists k. iLeft. iFrame. done.
+          all: try by iIntros "[% _]". }
           destruct Hret as [sh ->].
           iApply wp_value.
           unfold IntoVal.
@@ -1036,7 +1086,17 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
           unfold IntoVal.
           apply iris.of_to_val.
           unfold iris.to_val => /=.
-          specialize (iris.to_of_val (retV (sh_append sh [AI_basic
+          specialize (iris.to_of_val (retV (sh_append sh [AI_basic (i32const 4); AI_basic (BI_get_local 0);
+                   AI_basic (BI_call 4); AI_basic (i32const 6);
+                   AI_basic (BI_get_local 0); AI_basic (BI_call 4);
+                   AI_basic (i32const 0); AI_basic (BI_get_local 0);
+                   AI_basic (BI_call 5); AI_basic (i32const 0); 
+                   AI_basic (i32const 9); AI_basic (BI_call 6); 
+                   AI_basic (i32const 0); AI_basic (BI_get_local 0);
+                   AI_basic (BI_call 5); AI_basic (BI_get_local 0);
+                   AI_basic (BI_call 3); AI_basic (BI_get_local 0);
+                   AI_basic (BI_call 3); AI_basic (BI_binop T_i32 (Binop_i BOI_sub));
+                   AI_basic (BI_set_global 0)]))) as H'. (* [AI_basic
                       (BI_const
                          (VAL_int32 (Wasm_int.Int32.repr 4)));
                    AI_basic (BI_get_local 0);
@@ -1051,11 +1111,11 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
                    AI_basic (BI_get_local 0);
                    AI_basic (BI_call 3);
                    AI_basic (BI_binop T_i32 (Binop_i BOI_sub));
-                                                     AI_basic (BI_set_global 0)]))) as H.
-          unfold iris.to_val, iris.to_val, iris.of_val in H.
+                                                     AI_basic (BI_set_global 0)]))) as H. *)
+          unfold iris.to_val, iris.to_val, iris.of_val in H'.
           rewrite app_nil_r.
           destruct (merge_values_list _).
-          inversion H.
+          inversion H'.
           done.
           done.
           iExists _.
@@ -1071,25 +1131,306 @@ Lemma instantiate_stack_client_spec E hv0 hv1 hv2 hv3 hv4 hv5 hv6 hv7 :
           unfold IntoVal.
           by apply of_to_val.
           iFrame.
-          iSplit ; first done.
-          iExists g.
-          iFrame.
-          by iIntros "[[[%H _] | [%H _]] _]" ; first done ;
-            destruct H.
-          all : try by iIntros "[%H _]".
-          iIntros "[[H _] _]".
-          iDestruct "H" as (k) "[%H _]".
+          iExists k. iRight.
+           iSplit ; first done.
+           done.
+          by iIntros "[[[%H' _] | [%H' _]] _]" ; first done ;
+            destruct H'.
+          all : try by iIntros "[% _]".
+          iIntros "[H _]".
+          iDestruct "H" as (k) "[% _]".
           done. }
-      iIntros (w0) "[[-> Hwg] Hf]".
+      iIntros (w0) "[(Hf14 & Hvis7 & Himpfcl0 & Himpfcl4 & Himpfcl5 & Himpidt & Hf13 & Hmodtab & H) Hf]".
+      iDestruct "H" as (k) "[(% & -> & Hnextaddr & Hwg & Hs) | [-> Hwg]]".
+      simpl.
+      iApply wp_call_host_modify_table ; last first.
+      rewrite <- (N2Nat.id 0). iFrame. 
+      instantiate (3 := Wasm_int.int_of_Z i32m 0%Z).
+      simpl. iFrame.
+      iIntros "!> (Hf & Ha & Hwt)".
+      5:{ instantiate (3 := LL_local [] _ _ (LL_label [] _ _ (LL_base [] _) []) []).
+          simpl. done. }
+      all: try done. 
+      simpl. 
+      iApply wp_lift_wasm.
+      iApply (wp_frame_bind with "Hf"). done.
+      iIntros "Hf".
+      iApply (wp_label_bind with "[Hf Hwg Himpfcl5 Himpfcl3 Hs Hwt Hf14 Hvis7]") ; last first.
+      iPureIntro.
+      unfold lfilled, lfill => //=.
+      instantiate (5 := []) => //=.
+      by rewrite app_nil_r.
+      rewrite (separate2 (AI_basic _)).
+      iApply wp_seq.
+      iSplitR ; last first.
+      rewrite (separate1 (AI_basic _)).
+      iSplitL "Hf". iApply wp_val_app. done.
+      iSplitR ; last first.
+      iApply wp_wand_r. iSplitL. iApply (wp_get_local with "[] [$Hf]").
+      done. by instantiate ( 1 := λ x, ⌜x = immV _⌝%I).
+      iIntros (v) "[-> Hf]".
+      simpl.
+      by instantiate (1 := λ x, (⌜ x = immV _ ⌝ ∗ ↪[frame] _)%I) ; iFrame.
+      by iIntros "!> [% _]".
+      iIntros (w0) "[-> Hf]".
+      simpl.
+      rewrite (separate3 (AI_basic _)).
+      iApply wp_seq.
+      iSplitR ; last first.
+      rewrite (separate2 (AI_basic _)).
+      iSplitR "Hvis7 Himpfcl3 Hwg".
+      rewrite (separate2 (AI_basic _)).
+      rewrite - (app_nil_r [AI_basic (BI_call _)]).
+      iApply wp_wasm_empty_ctx.
+      iApply wp_base_push => //.
+      iApply (wp_call_ctx with "Hf") => //.
+      iIntros "!> Hf".
+      iApply wp_base_pull.
+      rewrite app_nil_r.
+      iApply wp_wasm_empty_ctx.
+      simpl. 
+      iApply ("Hspec5" with "[Himpfcl5 Hf Hs Hf14 Hwt]"). iFrame.
+      repeat iSplit.
+      by destruct H0.
+      destruct H0 ; simpl. iPureIntro. unfold Wasm_int.Int32.max_unsigned.
+      unfold Wasm_int.Int32.modulus.
+      unfold Wasm_int.Int32.wordsize.
+      unfold Integers.Wordsize_32.wordsize.
+      unfold two32 in H1. 
+      rewrite - Z.add_assoc.
+      replace (4 + 2%nat * 4)%Z with 12%Z ; last done.
+      replace (two_power_nat 32) with 4294967296%Z ; last done.
+      lia.
+      instantiate (1 := λ x, ⌜ (0 <= Wasm_int.Int32.intval x < two16)%Z ⌝%I).
+      done.
+      done. 
+      iIntros (u f) "!>".
+      iIntros (Φ) "(% & -> & Hf & Hwt & Hf14) HΦ".
+      rewrite (separate1 (AI_basic _)).
+      iApply (wp_invoke_native with "Hf Hf14"). done.
+      done. done.
+      iIntros "!> [Hf Hf14]".
+      iApply (wp_frame_bind with "Hf"). done.
+      iIntros "Hf".
+      rewrite - (app_nil_l [AI_basic _]).
+      iApply (wp_block with "Hf"). done. done. done. done.
+      iIntros "!> Hf".
+      iApply (wp_label_bind with "[Hf HΦ Hwt Hf14]") ; last first.
+      iPureIntro. unfold lfilled, lfill.
+      instantiate (6 := []) => /=.
+      by rewrite app_nil_r.
+      rewrite (separate1 (AI_basic _)).
+      iApply wp_seq.
+      iSplitR ; last first.
+      iSplitL "Hf".
+      iApply (wp_get_local with "[] [$Hf]").
+      done. by instantiate (1 := λ x, ⌜x = immV _⌝%I).
+      iIntros (w0) "[-> Hf]".
+      iApply wp_wand_r. iSplitL "Hf". iApply (wp_binop with "Hf").
+      done. by instantiate (1 := λ x, ⌜ x = immV _ ⌝%I).
+      iIntros (v) "[-> Hf]".
+      simpl.
+      iIntros (lh) "%".
+      unfold lfilled, lfill in H2. simpl in H2.
+      apply b2p in H2 as ->.
+      iApply wp_wand_r. iSplitL "Hf". iApply (wp_label_value with "Hf").
+      done. by instantiate (1 := λ x, ⌜ x = immV _ ⌝%I).
+      iIntros (v) "[-> Hf]".
+      iExists _ ; iFrame ; iIntros "Hf".
+      simpl. iApply wp_wand_r. iSplitL "Hf".
+      iApply (wp_frame_value with "Hf"). done.
+      done. by instantiate (1 := λ x, ⌜ x = immV _ ⌝%I).
+      iIntros (v) "[-> Hf]".
+      iApply "HΦ".
+      iFrame. iExists _. iSplit ; first done.
+      unfold spec5_stack_map. 
+      instantiate ( 1 := λ x y, ⌜ (Wasm_int.Int32.intval y = 2 * Wasm_int.Int32.intval x)%Z ⌝%I ).
+      simpl. iPureIntro. 
+      rewrite Wasm_int.Int32.Z_mod_modulus_eq.
+      rewrite Z.mod_small.
+      unfold Wasm_int.Int32.unsigned. 
+      lia.
+      destruct H1. unfold Wasm_int.Int32.unsigned.
+      split.
+      (* Maybe it's just my computer, but lia takes a painfull
+         amount of time to solve this, so I proved a dummy lemma
+         in order for lia to run in a simpler environment *)
+      assert (forall v:Z, (0 <= v)%Z -> (0 <= v * 2)%Z).
+      clear. intros. lia.
+      by apply H3.
+      unfold Wasm_int.Int32.modulus.
+      unfold Wasm_int.Int32.wordsize.
+      unfold Integers.Wordsize_32.wordsize.
+      remember (Wasm_int.Int32.intval u) as uv.
+      clear Hequv. clear - H2. unfold two16 in H2.
+      replace (two_power_nat 32) with 4294967296%Z ; last done.
+      lia. 
+      by iIntros "[% _]".
+      iIntros (w0) "[-> H]".
+      instantiate (1 := λ x, (⌜ x = immV [] ⌝ ∗ _)%I).
+      iSplitR ; first done.
+      iExact "H".
+      iIntros (w0) "(-> & H & Himpfcl5 & Hf & Hwt & Hf14)".
+      iDestruct "H" as (s') "[Hs Hs']".
+      destruct s'; first by iExFalso ; iExact "Hs'".
+      destruct s'; first iExFalso.
+      by iDestruct "Hs'" as "[_ %]".
+      destruct s' ; last first. 
+      simpl. by iDestruct "Hs'" as "(_ & _ & %)".
+      iDestruct "Hs'" as "(% & % & _)".
+      simpl in H1. simpl in H2. simpl. 
+      rewrite (separate1 (AI_basic _)).
+      iApply wp_seq.
+      iSplitR ; last first.
+      iSplitL "Hf".
+      iApply (wp_get_local with "[] [$Hf]").
+      done.
+      by instantiate (1 := λ x, ⌜x = immV _⌝%I).
+      iIntros (w0) "[-> Hf]". simpl.
+      rewrite (separate2 (AI_basic _)).
+      iApply wp_seq. iSplitR ; last first.
+      iSplitL "Hf Himpfcl3 Hs".
+      rewrite (separate1 (AI_basic _)).
+      rewrite - (app_nil_r [AI_basic (BI_call _)]).
+      iApply wp_wasm_empty_ctx.
+      iApply wp_base_push. done.
+      iApply (wp_call_ctx with "Hf").
+      done. 
+      iIntros "!> Hf".
+      iApply wp_base_pull.
+      simpl.
+      iApply wp_wasm_empty_ctx.
+      iApply ("Hspec3" with "[Himpfcl3 Hs Hf]").
       iFrame.
-      iDestruct "Hwg" as (g') "[Hwg Hvis7]".
-      iApply weakestpre.wp_value.
-      instantiate (1 := immHV []) => //=.
+      iPureIntro.
+      simpl.
+      destruct H0.
+      split ; first done.
+      unfold Wasm_int.Int32.max_unsigned.
+      unfold Wasm_int.Int32.modulus.
+      unfold Wasm_int.Int32.wordsize.
+      unfold Integers.Wordsize_32.wordsize.
+      clear - H3. unfold two_power_nat. simpl.
+      unfold two32 in H3. lia.
+      iIntros (w0) "(-> & H)".
+      instantiate (1 := λ x, (⌜ x = immV _ ⌝ ∗ _)%I).
+      iSplitR. done. iExact "H".
+      iIntros (w0) "(-> & Hs & Himpfcl3 & Hf)".
+      iSimpl.
+      rewrite (separate2 (AI_basic _)).
+      iApply wp_seq.
+      iSplitR ; last first.
+      iSplitL "Hf".
+      rewrite (separate1 (AI_basic _)).
+      iApply wp_val_app.
+      done.
+      iSplitR ; last first.
+      iApply wp_wand_r.
+      iSplitL.
+      iApply (wp_get_local with "[] [$Hf]").
+      done.
+      instantiate (1 := λ v, ⌜v = immV [value_of_int k]⌝%I).
+      done.
+      iIntros (v0) "[-> Hf]".
+      iSimpl.
+      instantiate (1 := λ v, (⌜ v = immV _ ⌝ ∗
+                                         ↪[frame] _)%I). 
+      by iFrame.
+      by iIntros "!> [% _]".
+      iIntros (w0) "[-> Hf]".
+      iSimpl.
+      rewrite (separate3 (AI_basic _)).
+      iApply wp_seq.
+      iSplitR ; last first.
+      iSplitL "Hf Hs Himpfcl3".
+      rewrite (separate1 (AI_basic _)).
+      iApply wp_val_app.
+      done.
+      iSplitR ; last first.
+      rewrite (separate1 (AI_basic (i32const _))).
+      rewrite - (app_nil_r [AI_basic (BI_call 3)]).
+      iApply wp_wasm_empty_ctx.
+      iApply wp_base_push => //.
+      iApply (wp_wand_ctx with "[Hf Hs Himpfcl3]"). 
+      iApply (wp_call_ctx with "Hf") => //.
+      iIntros "!> Hf".
+      iApply wp_base_pull.
+      rewrite app_nil_r.
+      iApply wp_wasm_empty_ctx.
+      iApply ("Hspec3"  with "[Hs Hf Himpfcl3]").
+      iFrame.
+      iSimpl.
+      repeat iSplit ; iPureIntro => //.
+      by destruct H0.
+      unfold Wasm_int.Int32.max_unsigned, Wasm_int.Int32.modulus.
+      unfold Wasm_int.Int32.wordsize, Integers.Wordsize_32.wordsize.
+      replace (two_power_nat 32) with two32 ; last done.
+      by destruct H0 ; lia.
+      iIntros (w0) "(-> & H)".
+      instantiate (1 := λ v, (⌜ v = immV _ ⌝ ∗ _)%I).
+      iSplitR. done. iExact "H". 
+      iIntros (w0) "(-> & H)".
+      iSimpl.
+      instantiate (1:= λ v, (⌜ v = immV _ ⌝ ∗ _)%I).
+      iSplitR. done. iExact "H". 
+      by iIntros "!> [% _]".
+      iIntros (w0) "(-> & Hs & Himpfcl3 & Hf)".
+      iSimpl.
+      rewrite (separate3 (AI_basic _) (AI_basic _)).
+      iApply wp_seq.
+      iSplitR ; last first.
+      iSplitL "Hf".
+      iApply (wp_binop with "Hf").
+      done.
+      iSimpl.
+      unfold Wasm_int.Int32.isub, Wasm_int.Int32.sub.
+      unfold Wasm_int.Int32.unsigned.
+      rewrite H1 H2.
+      instantiate (1 := λ v, ⌜ v = immV _ ⌝%I).
+      done.
+      iIntros (w0) "[-> Hf]".
+      iSimpl.
+      iApply wp_wand_r.
+      iSplitL "Hf Hwg".
+      iApply (wp_set_global with "[] Hf Hwg").
+      done.
+      instantiate (1 := λ v, ⌜ v = immV [] ⌝%I).
+      by iNext.
+      iIntros (v0) "[[ -> Hwg] Hf]".
+      iSimpl.
+      iIntros (lh) "%Hfill".
+      unfold lfilled, lfill in Hfill ; simpl in Hfill.
+      apply b2p in Hfill ; subst.
+      iApply wp_wand_r.
+      iSplitL "Hf".
+      iApply (wp_label_value with "Hf").
+      done.
+      instantiate (1 := λ v, ⌜ v = immV [] ⌝%I).
+      done.
+      iIntros (v0) "[-> Hf]".
+      iExists _.
+      iFrame.
+      iIntros "Hf".
+      iSimpl.
+      iApply wp_wand_r.
+      iSplitL "Hf". iApply (wp_frame_value with "Hf").
+      done.
+      done.
+      by instantiate (1 := λ x, ⌜ x = immV [] ⌝%I).
+      all: try by iIntros "[% _]".
+      iIntros (v) "[-> Hf]".
+      iApply iris_host.wp_value. done.
       iSplit => //.
-      iExists g', _.
+      iFrame "Hf".
+      iExists _, _.
       iFrame.
+      iApply iris_host.wp_value. done.
+      iSplit => //.
+      iFrame "Hf Hmod1".
+      iExists _, _. by iFrame.
+
   Qed.
   
-      
-End Client.
+
+End Client2.
   

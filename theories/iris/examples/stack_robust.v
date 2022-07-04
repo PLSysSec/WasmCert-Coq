@@ -18,6 +18,8 @@ Close Scope byte_scope.
 Section Client.
   Context `{!wasmG Σ, !hvisG Σ, !hmsG Σ}.
 
+  Definition xx i := (VAL_int32 (Wasm_int.int_of_Z i32m i)).
+  
   Definition main :=
     [ BI_call 0 ;
       BI_tee_local 0 ;
@@ -89,7 +91,7 @@ Section Client.
         |} ;
         {| imp_module := list_byte_of_string "Stack" ;
           imp_name := list_byte_of_string "table" ;
-          imp_desc := ID_table {| tt_limits := {| lim_min := 2%N ; lim_max := None |} ;
+          imp_desc := ID_table {| tt_limits := {| lim_min := 1%N ; lim_max := None |} ;
                                  tt_elem_type := ELT_funcref |}
         |} ;
         {| imp_module := list_byte_of_string "Adv";
@@ -278,16 +280,16 @@ Section Client_main.
          ∗ (∃ gv, N.of_nat k ↦[wg] {| g_mut := MUT_mut; g_val := gv |})
          (* new stack *)
          ∗ N.of_nat idf0 ↦[wf]FC_func_native istack (Tf [] [T_i32]) l0 f0
-         ∗ spec0_new_stack idf0 istack l0 f0 isStack newStackAddrIs
+         ∗ spec0_new_stack idf0 istack l0 f0 isStack newStackAddrIs ⊤
          (* push *)
          ∗ N.of_nat idf4↦[wf]FC_func_native istack (Tf [T_i32; T_i32] []) l4 f4
-         ∗ spec4_push idf4 istack l4 f4 isStack
+         ∗ spec4_push idf4 istack l4 f4 isStack ⊤
          (* pop *)
          ∗ N.of_nat idf3↦[wf]FC_func_native istack (Tf [T_i32] [T_i32]) l3 f3
-         ∗ spec3_pop idf3 istack l3 f3 isStack
+         ∗ spec3_pop idf3 istack l3 f3 isStack ⊤
          (* map *)
          ∗ N.of_nat idf5↦[wf]FC_func_native istack (Tf [T_i32; T_i32] []) l5 f5
-         ∗ spec5_stack_map_trap idf5 istack l5 f5 isStack idt 
+         ∗ spec5_stack_map_trap idf5 istack l5 f5 isStack idt ⊤
          (* table *)
          ∗ N.of_nat idt↦[wtblock]table_init_replace_single stacktab (nat_of_int (Wasm_int.Int32.repr 0)) [Some a]
          (* new stack predicate *)
@@ -319,12 +321,12 @@ Section Client_main.
     take_drop_app_rewrite 2.
     iApply wp_seq. iSplitR;[|iSplitL "Hf"];cycle 1.
     { iApply (wp_tee_local with "[$]").
-      iIntros "Hf".
+      iIntros "!> Hf".
       take_drop_app_rewrite 1.
       iApply wp_val.
       iSplitR;cycle 1.
       { iApply (wp_wand _ _ _ (λ v, ⌜v = immV []⌝ ∗ _)%I with "[Hf]").
-        iApply (wp_set_local with "Hf");[rewrite Hflocs;simpl;lia|done|..].
+        iApply (wp_set_local with "[] [$Hf]");[rewrite Hflocs;simpl;lia|done|..].
         iIntros (v) "[-> Hf]". iSimpl.
         instantiate (1:=(λ v, ⌜v = immV _⌝ ∗ _)%I).
         iSplitR;eauto. iExact "Hf". }
@@ -368,7 +370,7 @@ Section Client_main.
       iApply wp_value;[unfold IntoVal;by eapply of_to_val|].
       iIntros (LI HLI%lfilled_Ind_Equivalent);inversion HLI;subst. iSimpl.
       inversion H8;subst. iSimpl.
-      match goal with |- context [ WP ?e {{ _ }}%I ] => set (v:=e) end.
+      match goal with |- context [ WP ?e @ _ {{ _ }}%I ] => set (v:=e) end.
       eassert (iris.to_val v = Some (retV (SH_rec _ _ _ (SH_base [] []) _))) as Hval'.
       { cbn. eauto. }
       iApply wp_value;[unfold IntoVal;by eapply of_to_val|].
@@ -409,7 +411,7 @@ Section Client_main.
       iSplitR;[|iSplitL "Hf"];[by iIntros "[%Hcontr _]"|..].
       { take_drop_app_rewrite 1.
         iApply wp_val. iSplitR;[by iIntros "[%Hcontr _]"|].
-        iApply (wp_get_local with "Hf");simpl;eauto. }
+        iApply (wp_get_local with "[] [$Hf]");simpl;eauto. }
       iIntros (w) "[-> Hf]".
       iSimpl.
       (* push *)
@@ -438,7 +440,7 @@ Section Client_main.
       iSplitR;[|iSplitL "Hf"];[by iIntros "[%Hcontr _]"|..].
       { take_drop_app_rewrite 1.
         iApply wp_val. iSplitR;[by iIntros "[%Hcontr _]"|].
-        iApply (wp_get_local with "Hf");simpl;eauto. }
+        iApply (wp_get_local with "[] [$Hf]");simpl;eauto. }
       iIntros (w) "[-> Hf]".
       iSimpl.
       (* push *)
@@ -466,7 +468,7 @@ Section Client_main.
       iSplitR;[|iSplitL "Hf"];[by iIntros "[%Hcontr _]"|..].
       { take_drop_app_rewrite 1.
         iApply wp_val. iSplitR;[by iIntros "[%Hcontr _]"|].
-        iApply (wp_get_local with "Hf");simpl;eauto. }
+        iApply (wp_get_local with "[] [$Hf]");simpl;eauto. }
       iIntros (w) "[-> Hf]".
       iSimpl.
       (* map *)
@@ -554,7 +556,7 @@ Section Client_main.
           take_drop_app_rewrite 1.
           iApply (wp_seq _ _ _ (λ v, ⌜v = immV _⌝ ∗ _)%I).
           iSplitR;[|iSplitL "Hf"];[by iIntros "[%Hcontr _]"|..].
-          { iApply (wp_get_local with "Hf");simpl;eauto. }
+          { iApply (wp_get_local with "[] [$Hf]");simpl;eauto. }
           iIntros (w) "[-> Hf]".
           iSimpl.
           (* pop *)
@@ -603,6 +605,13 @@ Section Client_main.
     
 End Client_main.
 
+Ltac simplify_map_lookup H :=
+  repeat lazymatch H with
+  | <[ _ := _]> _ !! _ = _ => rewrite lookup_insert in H
+  | <[ _ := _]> _ !! _ = _ => rewrite lookup_insert_ne in H => //
+  end.
+    
+
 Section Client_instantiation.
 
   Context `{!wasmG Σ, !hvisG Σ, !hmsG Σ,
@@ -630,7 +639,7 @@ Section Client_instantiation.
     WP e @ s; E {{ Φ }} -∗ (∀ v, Φ v -∗ Ψ v) -∗ WP e @ s; E {{ Ψ }}.
   Proof. iApply (weakestpre.wp_wand). Qed.
 
-  Lemma instantiate_client adv_module g_ret wret :
+  Lemma instantiate_client adv_module g_ret wret  :
     module_typing adv_module [] [ET_func (Tf [T_i32] [T_i32])] -> (* we assume the adversary module has an export of the () → () *)
     mod_start adv_module = None -> (* that it does not have a start function *)
     module_restrictions adv_module -> (* that it adheres to the module restrictions (i.e. only constant initializers for globals) *)
@@ -645,34 +654,49 @@ Section Client_instantiation.
           na_own logrel_nais ⊤ ∗
           (∃ name, 8%N ↪[vis] {| modexp_name := name; modexp_desc := MED_global (Mk_globalidx (N.to_nat g_ret)) |}) ∗
           (∃ vs0 vs1 vs2 vs3 vs4 vs5 vs6, [∗ list] v↦vs∈[vs0;vs1;vs2;vs3;vs4;vs5;vs6], N.of_nat v ↪[vis] vs) ∗
-          (∃ vs, 7%N ↪[vis] vs)
+          (∃ vs, 7%N ↪[vis] vs) ∗
+          ↪[frame] empty_frame
       }}}
-        ((stack_adv_client_instantiate,[]) : host_expr)
+        ((stack_adv_client_instantiate,[]) : host_expr) 
       {{{ v, ⌜v = (trapHV : host_val)⌝ ∨ ∃ v, g_ret ↦[wg] {| g_mut := MUT_mut; g_val := VAL_int32 v|} }}} .
   Proof.
     iIntros (Htyp Hnostart Hrestrict Hboundst Hboundsm Hgrettyp).
     iModIntro. iIntros (Φ) "(Hgret & Hmod_stack & Hmod_adv & Hmod_lse & Hown & Hvis8 & 
-                        Hvisvst & Hvis7) HΦ".
+                        Hvisvst & Hvis7 & Hemptyframe) HΦ".
     iDestruct "Hvisvst" as (vs0 vs1 vs2 vs3 vs4 vs5 vs6) "Hvis".
-    iApply (wp_seq_host_nostart with "[$Hmod_stack] [Hvis] ") => //.
-    { iIntros "Hmod_stack".
+    iApply (wp_seq_host_nostart NotStuck with "[] [$Hmod_stack] [Hvis] ") => //.
+    2: { iIntros "Hmod_stack".
       iApply weakestpre.wp_mono;cycle 1.
       iApply (instantiate_stack_spec with "[$]").
       { iFrame "Hvis". }
-      iIntros (v) "[$ Hv]". iExact "Hv". }
+      iIntros (v) "[Hvsucc [$ Hv]]".
+      iCombine "Hvsucc Hv" as "Hv".
+      iExact "Hv". }
+    { by iIntros "(% & ?)". }
     iIntros (w) "Hstack Hmod_stack".
-    iApply (wp_seq_host_nostart with "[$Hmod_adv] [Hvis7] ") => //.
-    { iIntros "Hmod_adv".
+    iApply (wp_seq_host_nostart NotStuck with "[] [$Hmod_adv] [Hvis7] ") => //.
+    2: { iIntros "Hmod_adv".
       iApply weakestpre.wp_mono.
       2: iApply (instantiation_spec_operational_no_start _ _ _ [] [] _ _ _ _ ∅ ∅ ∅ ∅);eauto;iFrame.
       2: cbn; repeat iSplit =>//.
-      iIntros (v) "[$ Hv]". iExact "Hv".
+      { iIntros (v) "[Hvsucc [$ Hv]]".
+        iCombine "Hvsucc Hv" as "Hv".
+        by iExact "Hv". }
+      { by unfold import_func_resources. }
+      { by unfold func_typecheck. }
+      { by unfold import_tab_resources. }
+      { by unfold tab_typecheck. }
+      { by unfold import_mem_resources. }
+      { by unfold mem_typecheck. }
+      { by unfold import_glob_resources. }
+      { by unfold glob_typecheck. }
       iPureIntro. destruct Htyp as [fts [gts Htyp]].
       destruct adv_module;simpl in *.
       destruct Htyp as (_&_&_&_&_&_&_&_&Htyp).
       apply Forall2_length in Htyp. auto. }
+    { by iIntros "(% & ?)". }
 
-    iIntros (w') "[Himps Hinst_adv] Hmod_adv".
+    iIntros (w') "(-> & [Himps Hinst_adv]) Hmod_adv".
     iDestruct "Hinst_adv" as (inst_adv) "[Hinst_adv Hadv_exports]".
     iDestruct "Hinst_adv" as (g_adv_inits t_adv_inits m_adv_inits glob_adv_inits wts' wms')
                                "(Himpstyp & %HH & %Htyp_inits & %Hwts' & %Hbounds_elem & %Hmem_inits 
@@ -730,16 +754,26 @@ Section Client_instantiation.
     erewrite !nth_error_nth;eauto.
     
     iDestruct "Hvis8" as (gr) "Hvis8".
+
+    iDestruct "Hstack" as "(-> & Hstack)".
     
     iDestruct "Hstack" as (idf0 idf1 idf2 idf3 idf4 idf5 idt) "Hstack".
     iDestruct "Hstack" as (nm0 nm1 nm2 nm3 nm4 nm5 nm6 f0 f1 f2) "Hstack".
     iDestruct "Hstack" as (f3 f4 f5 istack l0 l1 l2 l3 l4 l5) "Hstack".
     iDestruct "Hstack" as (stacktab isStack newStackAddrIs) "Hstack".
-    iDestruct "Hstack" as "(HimpsH & HimpsW & %Htablen & HnewStackAddrIs 
+    iDestruct "Hstack" as "(HimpsH & HimpsW & %Hnodup & %Htablen & HnewStackAddrIs 
     & #Hnewstack & #Hisempty & #Hisfull & #Hpop & #Hpush & #Hmap & #Hmaptrap)".
 
+    rewrite irwt_nodup_equiv; last by apply NoDup_nil.
     iDestruct "HimpsW" as "(_ & Hidf0 & Hidf1 & Hidf2 & Hidf3 & Hidf4 & Hidf5 & Hidtab & _) /=".
-    repeat (rewrite lookup_insert + (rewrite lookup_insert_ne;[|done])).
+     repeat (rewrite lookup_insert + (rewrite lookup_insert_ne;[|done])).
+   (* iDestruct "HimpsW" as "(Hfc & Htc & Hmc & Hgc)".
+    iDestruct "Hfc" as "(Hf & %Hft & %Hfdom)".
+    unfold func_typecheck in Hft.
+    unfold func_domcheck in Hfdom.
+    unfold import_func_resources.
+    cbn.
+    iDestruct (big_sepM_delete with "Hf") eqn:*)
     iDestruct "Hidf0" as (cl0) "[Himpfcl0 Hcl0]".
     iDestruct "Hidf1" as (cl1) "[Himpfcl1 Hcl1]".
     iDestruct "Hidf2" as (cl2) "[Himpfcl2 Hcl2]".
@@ -779,11 +813,16 @@ Section Client_instantiation.
     iDestruct "Hidtab" as (tab tt) "[Hidtab [%Heq %Htt]]". inversion Heq;subst tab.
 
     iApply (wp_wand_host _ _ _ (λ v, _ ∗ ↪[frame]empty_frame)%I with "[-HΦ] [HΦ]");cycle 1.
-    { iIntros (v) "[Hv ?]". iApply "HΦ". iExact "Hv". }
+    { iIntros (v) "[Hv Hframe]". iApply "HΦ". iExact "Hv". }
 
-    iApply (instantiation_spec_operational_start with "[Hmod_lse HimpsH Himpfcl0 Himpfcl1 Himpfcl2 Himpfcl3 Himpfcl4 
-                                                 Himpfcl5 Hadvf Hidtab Hn Hgret Hvis8]")
+    iApply (instantiation_spec_operational_start with "[$Hemptyframe] [Hmod_lse HimpsH Himpfcl0 Himpfcl1 Himpfcl2 Himpfcl3 Himpfcl4 Himpfcl5 Hadvf Hidtab Hn Hgret Hvis8]")
     ; try exact client_module_typing;[eauto|..].
+    { unfold module_restrictions.
+      simpl.
+      split; first by exists [].
+      split; first by exists ([Wasm_int.int_of_Z i32m 0]).
+      by exists [].
+    }
     { iFrame. 
       instantiate (5:=[_;_;_;_;_;_;_;_;_]).
       iDestruct "HimpsH" as "($&$&$&$&$&$&$&_)". iFrame "Hn Hvis8".
@@ -799,6 +838,12 @@ Section Client_instantiation.
       (*                     N.of_nat idf5 := FC_func_native istack (Tf [T_i32; T_i32] []) l5 f5 ; *)
       (*                     N.of_nat advf := (FC_func_native inst_adv (Tf [T_i32] [T_i32]) modfunc_locals modfunc_body)]}). *)
       (* cbn.  unfold client_glob_impts. *)
+      unfold instantiation_resources_pre_wasm.
+      rewrite irwt_nodup_equiv => /=; last first.
+      { clear - H01 H02 H03 H04 H05 H12 H13 H14 H15 H23 H24 H25 H34 H35 H45 Hadv0 Hadv1 Hadv2 Hadv3 Hadv4 Hadv5.
+        repeat (apply NoDup_cons; split; cbn; first by set_solver).
+        by apply NoDup_nil.
+      }
       iSplitL;[|auto]. iSplitL.
       { iSplit.
         { iPureIntro.
@@ -836,7 +881,14 @@ Section Client_instantiation.
     iIntros (idnstart) "Hf [Hmod_lse Hr]".
     iDestruct "Hr" as "((Himpf0 & Himpf1 & Himpf2 & Himpf3 & Himpf4 & Himpf5 & Htab & Hadvf & Hg) & Hr)".
     iDestruct "Hr" as (?) "[Hr' _]".
-    iDestruct "Hr'" as (? ? ? ? ? ?) "([%Hdom (Himpr0 & Himpr1 & Himpr2 & Himpr3 & Himpr4 & Himpr5 & Htabr & Hadv & Hgret & _)] & %Htypr & %Htab_inits & %Hwts'0 & %Hbounds_elemr & 
+    unfold instantiation_resources_post_wasm.
+    iDestruct "Hr'" as (? ? ? ? ? ?) "Hr'".
+    rewrite irwt_nodup_equiv => /=; last first.
+    { clear - H01 H02 H03 H04 H05 H12 H13 H14 H15 H23 H24 H25 H34 H35 H45 Hadv0 Hadv1 Hadv2 Hadv3 Hadv4 Hadv5.
+      repeat (apply NoDup_cons; split; cbn; first by set_solver).
+      by apply NoDup_nil.
+    }
+    iDestruct "Hr'" as "([%Hdom (Himpr0 & Himpr1 & Himpr2 & Himpr3 & Himpr4 & Himpr5 & Htabr & Hadv & Hgret & _)] & %Htypr & %Htab_inits & %Hwts'0 & %Hbounds_elemr & 
         %Hmem_initsr & %Hwms0' & %Hbounds_datar & %Hglobsr & %Hglob_initsr & Hr )".
     iDestruct "Hr" as "(Hr&_&_&_)".
     destruct Htypr as (Heq1&[? Heq2]&[? Heq3]&[? Heq4]&[? Heq6]&Heq5).
@@ -873,7 +925,9 @@ Section Client_instantiation.
     3,4,5: by instantiate (1:=∅).
     { rewrite Heqadvm /=. auto. }
     { destruct Hglob_inits_vals as [? ?];eauto. }
-    { instantiate (1:=∅). repeat iSplit;auto.
+    { instantiate (1:=∅).
+      rewrite irwt_nodup_equiv; last by apply NoDup_nil.
+      repeat iSplit;auto.
       rewrite module_import_init_tabs_dom. auto.
       rewrite module_import_init_mems_dom. auto.
     }

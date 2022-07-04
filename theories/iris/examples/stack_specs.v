@@ -18,12 +18,12 @@ Close Scope byte_scope.
 Notation "{{{ P }}} es {{{ v , Q }}}" :=
   (□ ∀ Φ, P -∗ (∀ v : iris.val, Q -∗ Φ v) -∗ WP (es : iris.expr) @ NotStuck ; ⊤ {{ v, Φ v }})%I (at level 50). 
    
+Notation "{{{ P }}} es @ E {{{ v , Q }}}" :=
+  (□ ∀ Φ, P -∗ (∀ v : iris.val, Q -∗ Φ v) -∗ (WP (es : iris.expr) @ NotStuck ; E {{ v, Φ v }}))%I (at level 50).
 
 
 Section stack.
 
-
-Canonical Structure wasm_lang := Language wasm_mixin.
 
  Context `{!wasmG Σ}. 
 
@@ -295,11 +295,7 @@ Proof.
   lia.
 Qed.
 
-  
-
-
-
-Lemma spec_new_stack f0 n len : 
+Lemma spec_new_stack f0 n len E: 
   ⊢ {{{ ⌜ f0.(f_inst).(inst_memory) !! 0 = Some n ⌝ ∗
         ⌜ length (f_locs f0) >= 1 ⌝ ∗
         ⌜ (Wasm_int.Int32.modulus - 1)%Z <>
@@ -308,7 +304,7 @@ Lemma spec_new_stack f0 n len :
         ⌜ (page_size | len)%N ⌝ ∗
         ↪[frame] f0 ∗
         N.of_nat n ↦[wmlength] len }}}
-    to_e_list new_stack
+    to_e_list new_stack @ E
     {{{ v , (∃ (k : Z), ⌜ v = immV [value_of_int k] ⌝ ∗
                                    (⌜ (k = -1)%Z ⌝ ∗
                                       N.of_nat n↦[wmlength] len ∨
@@ -337,8 +333,8 @@ Proof.
                    (((⌜ x = immV [VAL_int32 (Wasm_int.int_of_Z
                                             i32m (ssrnat.nat_of_bin
                                                     (len `div` page_size)))] ⌝ ∗
-                               (∃ b, N.of_nat n ↦[wms][ len ]
-                                              repeat b (N.to_nat page_size)) ∗
+                               (N.of_nat n ↦[wms][ len ]
+                                              repeat #00%byte (N.to_nat page_size)) ∗
                               N.of_nat n↦[wmlength] (len + page_size)%N)
                               
                    ∨ (⌜ x = immV [VAL_int32 int32_minus_one] ⌝%I ∗
@@ -347,7 +343,7 @@ Proof.
   - iSplitR "HΦ".
     unfold i32const.
     iApply (wp_grow_memory
-              NotStuck ⊤ n f0 len
+              NotStuck E n f0 len
               (λ x, ⌜ x = immV [VAL_int32 (Wasm_int.int_of_Z i32m (ssrnat.nat_of_bin
                                                                      (len `div`
                                                                           page_size)))] ⌝%I)
@@ -363,7 +359,7 @@ Proof.
     unfold fmap, list_fmap.
     rewrite - separate1.
     rewrite separate2.
-    iApply (wp_seq NotStuck ⊤ _ (λ x, (⌜ x = immV [v] ⌝
+    iApply (wp_seq _ E _ (λ x, (⌜ x = immV [v] ⌝
                                       ∗ ↪[frame] {|
                                             f_locs := set_nth v (f_locs f0) 0 v;
                                             f_inst := f_inst f0
@@ -373,12 +369,12 @@ Proof.
   - iIntros "[%Habs _]" ; done.
   - iSplitL "Hf". 
     iApply (wp_tee_local with "Hf").
-    iIntros "Hf".
+    iIntros "!> Hf".
     rewrite list_extra.cons_app.
     iApply wp_val_app => //=.
     iSplitR => //=.
     iIntros "!> [%Habs _]" ; done.
-    iApply (wp_set_local with "Hf") => //=.
+    iApply (wp_set_local with "[] [$Hf]") => //=.
   - iIntros (w) "[-> Hf]".
     unfold of_val, fmap, list_fmap.
     rewrite - separate1.
@@ -451,7 +447,6 @@ Proof.
 
       iDestruct "H" as "[ (%Hvv & Hb & Hlen) | [%Hvv Hlen]]" ; inversion Hvv ; subst ;
         last by rewrite eq_refl in Hv ; inversion Hv.
-      iDestruct "Hb" as (b) "Hb".
       unfold page_size at 2.
       replace (N.to_nat (64 * 1024)) with (4 + N.to_nat (65532)) ; last done.
       rewrite repeat_app.
@@ -461,7 +456,7 @@ Proof.
       iDestruct (wms_append with "Hb") as "[H2 Hb]".
       iDestruct (wms_append with "Hb") as "[H3 Hb]".
       iDestruct (wms_append with "Hb") as "[H4 Hb]".
-      iAssert (N.of_nat n↦[wms][ len ] [b;b;b;b])%I with "[H1 H2 H3 H4]" as "Hbs".
+      iAssert (N.of_nat n↦[wms][ len ] [(#00%byte) ; (#00%byte) ; (#00%byte) ; (#00%byte)])%I with "[H1 H2 H3 H4]" as "Hbs".
       { unfold mem_block_at_pos, big_opL.
         repeat rewrite of_nat_to_nat_plus ; rewrite N.add_0_r.
         replace (len + 1 + 1)%N with (len + 2)%N ; last lia.
@@ -482,8 +477,8 @@ Proof.
           iApply wp_seq_ctx; eauto.
           iSplitL ""; last first.
           - iSplitL "Hf".
-            iApply (wp_get_local with "Hf") => /=; first by rewrite set_nth_read.
-            instantiate (1 := (λ x, ( x = immV [VAL_int32 c]))) => //=.
+            iApply (wp_get_local with "[] [$Hf]") => /=; first by rewrite set_nth_read.
+            instantiate (1 := (λ x, ( ⌜x = immV [VAL_int32 c] ⌝)%I)) => //=.
           - 2: { simpl. by iIntros "(%HContra & _ )". }
             iIntros (w) "[-> Hf]".
             unfold of_val, fmap, list_fmap.
@@ -508,7 +503,7 @@ Proof.
             iSplitL ""; last first.
             iSplitL "Hf".
             iApply (wp_tee_local with "Hf").
-            iIntros "Hf".
+            iIntros "!> Hf".
             rewrite separate1.
         instantiate (1 :=  ( λ x,  (⌜ x = immV [(VAL_int32 (
                                                     Wasm_int.int_mul
@@ -536,7 +531,7 @@ Proof.
                                               |})%I)).
         iApply wp_val_app => //=.
         iSplit; first by iIntros "!> (%HContra & _)" => //.
-        iApply (wp_set_local with "Hf") => //=.
+        iApply (wp_set_local with "[] [$Hf]") => //=.
         rewrite length_is_size size_set_nth.
         unfold ssrnat.maxn.
         rewrite length_is_size in Hflocs.
@@ -570,7 +565,7 @@ Proof.
                                               f_inst := f_inst f0
                                             |})%I )).
         iSplitL ""; first by iIntros "!> (%HContra & _)" => //.
-        iApply (wp_get_local with "Hf") => //=.
+        iApply (wp_get_local with "[] [$Hf]") => //=.
         rewrite set_nth_read => //=.
         iIntros (w) "[-> Hf]".
         unfold of_val, fmap, list_fmap.
@@ -608,7 +603,7 @@ Proof.
         iSplitL.
         iApply (wp_store with "[Hf Hbs]").
         done.
-        instantiate (1 := [b ; b ; b ; b]).
+        instantiate (1 := [(#00%byte); (#00%byte); (#00%byte); (#00%byte)]).
         done.
         instantiate (2 := {| f_locs := set_nth (VAL_int32 c) (f_locs f0) 0
                                                (VAL_int32 (Wasm_int.Int32.imul
@@ -650,11 +645,13 @@ Proof.
         iApply wp_seq_ctx.
         iSplitL ""; last first.
         iSplitL "Hf".
-        iApply (wp_get_local with "Hf").
+        iApply (wp_get_local with "[] [$Hf]").
         simpl.
         rewrite set_nth_read.
         done.
-        instantiate (1 := λ x, x = immV [ value_of_int (N.to_nat len) ]).
+        iModIntro.
+        instantiate (1 := λ x, ⌜x = immV [ value_of_int (N.to_nat len) ]⌝%I).
+        iPureIntro.
         simpl.
         unfold value_of_int.
         rewrite Heqc.
@@ -882,7 +879,7 @@ Proof.
         unfold two14 ; lia.
         iSplitL "Hn" ; first done.
         iSplit ; first done.
-        iExists (repeat b ( N.to_nat 65532)).
+        iExists (repeat #00%byte ( N.to_nat 65532)).
         iSplit ; first by rewrite repeat_length.
         replace (Z.to_N (N.to_nat len + 4)) with (len + 1 + 1 + 1 + 1)%N ; last lia.
         done.
@@ -893,13 +890,13 @@ Qed.
 
 
 
-Lemma spec_is_empty f0 n v s : 
+Lemma spec_is_empty f0 n v s E: 
   ⊢ {{{ ⌜ f0.(f_inst).(inst_memory) !! 0 = Some n ⌝ ∗
         ⌜ (f_locs f0) !! 0 = Some (value_of_int v) ⌝ ∗ 
         ⌜ (0 <= v <= Wasm_int.Int32.max_unsigned - 4 - length s * 4)%Z ⌝ ∗ 
         ↪[frame] f0 ∗
         isStack v s n }}}
-    to_e_list is_empty
+    to_e_list is_empty @  E
     {{{ w, ∃ k, ⌜ w = immV [value_of_int k] ⌝ ∗ isStack v s n ∗
                            ⌜ (k = 1 /\ s = []) \/
                   (k = 0 /\ s <> []) ⌝ ∗
@@ -913,7 +910,7 @@ Proof.
   iSplitR.
   by iIntros "[%Habs _]".
   iSplitL "Hf".
-  - iApply (wp_get_local with "Hf") => //=.
+  - iApply (wp_get_local with "[] [$Hf]") => //=.
   - iIntros (w) "[-> Hf]".
     unfold of_val, fmap, list_fmap .
     rewrite - separate1.
@@ -948,7 +945,7 @@ Proof.
     iApply wp_val_app => //=.
     iSplitR.
     by iIntros "!> [%Habs _]".
-    iApply (wp_get_local with "Hf") => //=.
+    iApply (wp_get_local with "[] [$Hf]") => //=.
   - iIntros (w) "[-> Hf]".
     unfold of_val, fmap, list_fmap.
     rewrite - separate2.
@@ -1025,13 +1022,13 @@ Proof.
 Qed.
     
     
-Lemma spec_is_full f0 n (v : Z) (s : seq.seq i32) : 
+Lemma spec_is_full f0 n (v : Z) (s : seq.seq i32) E: 
   ⊢ {{{ ⌜ f0.(f_inst).(inst_memory) !! 0 = Some n ⌝ ∗
         ⌜ (f_locs f0) !! 0 = Some (value_of_int v) ⌝ ∗ 
         ⌜ (0 <= v <= Wasm_int.Int32.max_unsigned - 4 - length s * 4 )%Z ⌝ ∗ 
         ↪[frame] f0 ∗
         isStack v s n }}}
-    to_e_list is_full
+    to_e_list is_full @ E
     {{{ w, ∃ k, ⌜ w = immV [value_of_int k] ⌝ ∗ isStack v s n ∗
                            ⌜ k = 1 \/ (length s < two14 - 1)%Z ⌝ ∗
           ∃ f1, ↪[frame] f1 ∗ ⌜ f_inst f0 = f_inst f1⌝ }}}.
@@ -1193,14 +1190,14 @@ Qed.
 
 
 
-Lemma spec_pop f0 n v (a : i32) s :
+Lemma spec_pop f0 n v (a : i32) s E:
   ⊢ {{{ ⌜ f0.(f_inst).(inst_memory) !! 0 = Some n ⌝
          ∗ ⌜ f0.(f_locs) !! 0 = Some (value_of_int v) ⌝
          ∗ ⌜ length f0.(f_locs) >= 2 ⌝
          ∗ ⌜ (0 <= v <= Wasm_int.Int32.max_unsigned - 4 - S (length s) * 4 )%Z ⌝
          ∗ isStack v (a :: s) n
          ∗ ↪[frame] f0 }}}
-    to_e_list pop
+    to_e_list pop @ E
     {{{ w, ⌜ w = immV [VAL_int32 a] ⌝ ∗
                       isStack v s n ∗
                       ∃ f1, ↪[frame] f1 ∗ ⌜ f_inst f0 = f_inst f1 ⌝ }}}.
@@ -1212,7 +1209,7 @@ Proof.
   instantiate (1 := λ x, (⌜ x = immV [value_of_int v] ⌝ ∗ ↪[frame] f0)%I).
   iSplitR ; first by iIntros "[%Habs _]".
   iSplitL "Hf".
-  - iApply (wp_get_local with "Hf") => //=.
+  - iApply (wp_get_local with "[] [$Hf]") => //=.
   - iIntros (w) "[-> Hf]".
     unfold of_val, fmap, list_fmap.
     iSimpl.
@@ -1287,11 +1284,11 @@ Proof.
     iSplitR ; first by iIntros "[%Habs _]".
     iSplitL "Hf".
   - iApply (wp_tee_local with "Hf").
-    iIntros "Hf".
+    iIntros "!> Hf".
     rewrite separate1.
     iApply wp_val_app => //.
     iSplitR ; first by iIntros "!> [%Habs _]".
-    iApply (wp_set_local with "Hf") => //.
+    iApply (wp_set_local with "[]Hf") => //.
   - iIntros (w) "[-> Hf]".
     remember {| f_locs := set_nth (value_of_int (v + S (length s) * 4)) (f_locs f0) 1
                                   (value_of_int (v + S (length s) * 4)) ;
@@ -1347,7 +1344,7 @@ Proof.
     iApply wp_val_app => //.
     iSplitR ; first by iIntros "!> [%Habs _]".
     subst.
-    iApply (wp_get_local with "Hf") => //=.
+    iApply (wp_get_local with "[] [$Hf]") => //=.
     unfold set_nth.
     destruct (f_locs f0) => //=.
   - iIntros (w) "[-> Hf]".
@@ -1363,7 +1360,7 @@ Proof.
   - rewrite separate2.
     iApply wp_val_app => //.
     iSplitR ; first by iIntros "!> [%Habs _]".
-    iApply (wp_get_local with "Hf") => //=.
+    iApply (wp_get_local with "[] [$Hf]") => //=.
     subst f1 => //=.
     by rewrite set_nth_read.
   - iIntros (w) "[-> Hf]".
@@ -1465,7 +1462,7 @@ Qed.
                                                                          
                                                                         
     
-Lemma spec_push f0 n v (a : i32) s :
+Lemma spec_push f0 n v (a : i32) s E :
   ⊢ {{{ ⌜ f0.(f_inst).(inst_memory) !! 0 = Some n ⌝
          ∗ ⌜ f0.(f_locs) !! 0 = Some (VAL_int32 a) ⌝ 
          ∗ ⌜ f0.(f_locs) !! 1 = Some (value_of_int v) ⌝
@@ -1474,7 +1471,7 @@ Lemma spec_push f0 n v (a : i32) s :
          ∗ ⌜ (length s < two14 - 1)%Z ⌝
          ∗ isStack v s n
          ∗ ↪[frame] f0 }}}
-    to_e_list push
+    to_e_list push @ E
     {{{ w, ⌜ w = immV [] ⌝ ∗
            isStack v (a :: s) n ∗
            ∃ f1, ↪[frame] f1 ∗ ⌜ f_inst f0 = f_inst f1 ⌝ }}}. 
@@ -1486,7 +1483,7 @@ Proof.
   instantiate (1 := λ x, (⌜ x = immV [value_of_int v] ⌝ ∗ ↪[frame] f0)%I).
   iSplitR ; first by iIntros "[%Habs _]".
   iSplitL "Hf".
-  - iApply (wp_get_local with "Hf") => //=.
+  - iApply (wp_get_local with "[] [$Hf]") => //=.
   - iIntros (w) "[-> Hf]".
     unfold of_val, fmap, list_fmap.
     iSimpl.
@@ -1531,11 +1528,11 @@ Proof.
     iSplitR ; first by iIntros "[%Habs _]".
     iSplitL "Hf".
   - iApply (wp_tee_local with "Hf").
-    iIntros "Hf".
+    iIntros "!> Hf".
     rewrite separate1.
     iApply wp_val_app => //.
     iSplitR ; first by iIntros "!> [%Habs _]".
-    iApply (wp_set_local with "Hf") => //=.
+    iApply (wp_set_local with "[] [$Hf]") => //=.
   - iIntros (w) "[-> Hf]".
     remember {| f_locs := set_nth (value_of_int (v + 4 + length s * 4))
                                   (f_locs f0) 2 (value_of_int (v + 4 + length s * 4)) ;
@@ -1551,7 +1548,7 @@ Proof.
   - rewrite separate1.
     iApply wp_val_app => //.
     iSplitR ; first by iIntros "!> [%Habs _]".
-    subst f1 ; iApply (wp_get_local with "Hf") => //.
+    subst f1 ; iApply (wp_get_local with "[] [$Hf]") => //.
     unfold set_nth.
     destruct (f_locs f0) => //=.
   - iIntros (w) "[-> Hf]".
@@ -1629,7 +1626,7 @@ Proof.
     instantiate (1 := λ x, ( ⌜ x = immV [value_of_int v] ⌝ ∗ ↪[frame]f1)%I).
     iSplitR ; first by iIntros "[%Habs _]".
     iSplitL "Hf".
-  - iApply (wp_get_local with "Hf") => //.
+  - iApply (wp_get_local with "[] [$Hf]") => //.
     subst f1 => //=.
     unfold set_nth.
     destruct (f_locs f0) => //=.
@@ -1647,7 +1644,7 @@ Proof.
   - rewrite separate1.
     iApply wp_val_app => //.
     iSplitR ; first by iIntros "!> [%Habs _]".
-    iApply (wp_get_local with "Hf") => //.
+    iApply (wp_get_local with "[] [$Hf]") => //.
     subst f1 => //=.
     rewrite set_nth_read => //=.
     by subst x.
@@ -1795,7 +1792,7 @@ Qed.
   
 
 
-Lemma spec_stack_map (f0 : frame) (n : immediate) (f : i32) (v : Z) (s : seq.seq i32)
+Lemma spec_stack_map (f0 : frame) (n : immediate) (f : i32) (v : Z) (s : seq.seq i32) E
       j0 a cl 
       (Φ : i32 -> iPropI Σ) (Ψ : i32 -> i32 -> iPropI Σ) :
   ⊢ {{{  ⌜ f0.(f_inst).(inst_memory) !! 0 = Some n ⌝  ∗
@@ -1821,13 +1818,13 @@ Lemma spec_stack_map (f0 : frame) (n : immediate) (f : i32) (v : Z) (s : seq.seq
                        (N.of_nat a) ↦[wf] cl
                   }}}
                   [ AI_basic (BI_const (VAL_int32 u)) ;
-                    AI_invoke a ]
+                    AI_invoke a ] @ E
                   {{{ w, (∃ v, ⌜ w = immV [VAL_int32 v] ⌝ ∗ Ψ u v)
                            ∗ ↪[frame] fc
                            ∗ (N.of_nat j0) ↦[wt][ N.of_nat (Wasm_int.nat_of_uint i32m f) ] (Some a) 
                            ∗ (N.of_nat a) ↦[wf] cl }}}) ∗   
             ↪[frame] f0 }}}
-    to_e_list stack_map
+    to_e_list stack_map @ E
     {{{ w, ⌜ w = immV [] ⌝ ∗
            (∃ s', isStack v s' n ∗ stackAll2 s s' Ψ) ∗
            (∃ f1, ↪[frame] f1 ∗ ⌜ f_inst f0 = f_inst f1 ⌝) ∗
@@ -1842,7 +1839,7 @@ Proof.
   iSplitR ; last first.
   iSplitL "Hf".
   iApply wp_get_local => //.
-  instantiate (1 := λ x, x = immV [value_of_int v]) => //.
+  instantiate (1 := λ x, ⌜x = immV [value_of_int v]⌝%I) => //.
   iIntros (w) "[-> Hf]".
   iSimpl.
   rewrite (separate2 (AI_basic (i32const v))).
@@ -1878,21 +1875,21 @@ Proof.
   iSplitR ; last first.
   iSplitL "Hf".
   iApply wp_set_local => //.
-  by instantiate (1 := λ x, x = immV []).
+  by instantiate (1 := λ x, ⌜x = immV []⌝%I).
   iIntros (w) "[-> Hf]".
   iSimpl.
   rewrite (separate1 (AI_basic (BI_get_local 1))).
   iApply wp_seq.
   iSplitR ; last first.
   iSplitL "Hf".
-  iApply (wp_get_local with "Hf") => //=.
+  iApply (wp_get_local with "[] [$Hf]") => //=.
   unfold set_nth.
   destruct (f_locs f0) ; first by inversion Hlocs0.
   destruct l ; first by inversion Hlocs1.
   simpl in Hlocs1.
   inversion Hlocs1 ; subst.
   done.
-  by instantiate (1 := λ x, x = immV [value_of_int v]).
+  by instantiate (1 := λ x, ⌜x = immV [value_of_int v]⌝%I).
   iIntros (w) "[-> Hf]".
   iSimpl.
   rewrite separate3.
@@ -1913,7 +1910,7 @@ Proof.
   rewrite length_is_size in Hlocs.
   unfold ssrnat.maxn.
   destruct (ssrnat.leq _ _) ; lia.
-  by instantiate (1 := λ x, x = immV []).
+  by instantiate (1 := λ x, ⌜x = immV []⌝%I).
   iIntros (w) "[-> Hf]".
   iSimpl.
   rewrite - (app_nil_l [AI_basic (BI_block _ _)]).
@@ -1961,7 +1958,7 @@ Proof.
      AI_basic (BI_load T_i32 None N.zero N.zero); AI_basic (BI_get_local 0);
      AI_basic (BI_call_indirect 1); AI_basic (BI_store T_i32 None N.zero N.zero);
      AI_basic (i32const 4); AI_basic (BI_binop T_i32 (Binop_i BOI_add));
-     AI_basic (BI_set_local 2); AI_basic (BI_br 0)]
+     AI_basic (BI_set_local 2); AI_basic (BI_br 0)] @  E
   CTX
   2;
   push_base (LH_rec [] 0 [] (LH_base [] []) []) 0
@@ -1981,9 +1978,9 @@ Proof.
     iApply wp_seq_ctx.
     iSplitR ; last first.
     iSplitL "Hf".
-    iApply (wp_get_local with "Hf").
+    iApply (wp_get_local with "[] [$Hf]").
     simpl. by rewrite set_nth_read.
-    by instantiate ( 1 := λ x, x = immV _).
+    by instantiate ( 1 := λ x, ⌜x = immV _⌝%I).
     iIntros (w) "[-> Hf]".
     iSimpl.
     rewrite (separate2 _ (AI_basic (BI_get_local 3))).
@@ -1995,14 +1992,14 @@ Proof.
     iSplitR ; last first.
     iApply wp_wand_r.
     iSplitL.
-    iApply (wp_get_local with "Hf").
+    iApply (wp_get_local with "[] [$Hf]").
     simpl.
     destruct (f_locs f0) ; first by inversion Hlocs.
     destruct l ; first by inversion Hlocs1.
     destruct l ; first by simpl in Hlocs ; lia.
     simpl.
     by rewrite set_nth_read.
-    by instantiate (1 := λ x, x = immV _).
+    by instantiate (1 := λ x, ⌜x = immV _⌝%I).
     iIntros (w) "[-> Hf]".
     rewrite Z.sub_0_r.
     iSimpl.
@@ -2069,9 +2066,9 @@ Proof.
   iApply wp_seq_ctx.
   iSplitR ; last first.
   iSplitL "Hf".
-  iApply (wp_get_local with "Hf").
+  iApply (wp_get_local with "[] [$Hf]").
   simpl. by rewrite set_nth_read.
-  by instantiate ( 1 := λ x, x = immV _).
+  by instantiate ( 1 := λ x, ⌜x = immV _⌝%I).
   iIntros (w) "[-> Hf]".
   iSimpl.
   rewrite (separate2 _ (AI_basic (BI_get_local 3))).
@@ -2083,14 +2080,14 @@ Proof.
   iSplitR ; last first.
   iApply wp_wand_r.
   iSplitL.
-  iApply (wp_get_local with "Hf").
+  iApply (wp_get_local with "[] [$Hf]").
   simpl.
   destruct (f_locs f0) ; first by inversion Hlocs.
   destruct l ; first by inversion Hlocs1.
   destruct l ; first by simpl in Hlocs ; lia.
   simpl.
   by rewrite set_nth_read.
-  by instantiate (1 := λ x, x = immV _).
+  by instantiate (1 := λ x, ⌜x = immV _⌝%I).
   iIntros (w) "[-> Hf]".
   iSimpl.
   instantiate (1 := λ x, (⌜ x = immV _ ⌝ ∗ ↪[frame] _)%I).
@@ -2131,9 +2128,9 @@ Proof.
   iApply wp_seq_ctx.
   iSplitR ; last first.
   iSplitL "Hf".
-  iApply (wp_get_local with "Hf") => /=.
+  iApply (wp_get_local with "[] [$Hf]") => /=.
   by rewrite set_nth_read.
-  by instantiate (1 := λ x, x = immV _).
+  by instantiate (1 := λ x, ⌜x = immV _⌝%I).
   iIntros (w) "[-> Hf]".
   iSimpl.
   rewrite (separate2 (AI_basic (i32const (v + 4 + _ * 4)))).
@@ -2145,9 +2142,9 @@ Proof.
   iSplitR ; last first.
   iApply wp_wand_r.
   iSplitL.
-  iApply (wp_get_local with "Hf") => /=.
+  iApply (wp_get_local with "[] [$Hf]") => /=.
   by rewrite set_nth_read.
-  by instantiate (1 := λ x, x = immV _).
+  by instantiate (1 := λ x, ⌜x = immV _⌝%I).
   iIntros (w) "[-> Hf]".
   iSimpl.
   by instantiate (1 := λ x, (⌜ x = immV _ ⌝ ∗ ↪[frame] _)%I) ; iFrame.
@@ -2163,9 +2160,9 @@ Proof.
   iSplitR ; last first.
   iApply wp_wand_r.
   iSplitL.
-  iApply (wp_get_local with "Hf") => /=.
+  iApply (wp_get_local with "[] [$Hf]") => /=.
   by rewrite set_nth_read.
-  by instantiate (1 := λ x, x = immV _).
+  by instantiate (1 := λ x, ⌜x = immV _⌝%I).
   iIntros (w) "[-> Hf]".
   iSimpl.
   by instantiate (1 := λ x, (⌜ x = immV _ ⌝ ∗ ↪[frame] _)%I) ; iFrame.
@@ -2283,10 +2280,10 @@ Proof.
   iSplitR ; last first.
   iApply wp_wand_r.
   iSplitL.
-  iApply (wp_get_local with "Hf") => /=.
+  iApply (wp_get_local with "[] [$Hf]") => /=.
   destruct (f_locs f0) ; inversion Hlocs0.
   simpl. done.
-  by instantiate (1 := λ x, x = immV _).
+  by instantiate (1 := λ x, ⌜x = immV _⌝%I).
   iIntros (w) "[-> Hf]".
   iSimpl.
   by instantiate (1 := λ x, (⌜ x = immV _ ⌝ ∗ ↪[frame] _)%I) ; iFrame.
@@ -2380,14 +2377,14 @@ Proof.
   iApply wp_seq_ctx.
   iSplitR ; last first.
   iSplitL "Hf".
-  iApply (wp_set_local with "Hf") => /=.
+  iApply (wp_set_local with "[] [$Hf]") => /=.
   destruct (f_locs f0) ; first done.
   destruct l ; first done.
   destruct l ; first by simpl in Hlocs ; lia.
   destruct l ; first by simpl in Hlocs ; lia.
   simpl.
   lia.
-  by instantiate (1 := λ x, x = immV _).
+  by instantiate (1 := λ x, ⌜x = immV _⌝%I).
   iIntros (w) "[-> Hf]".
   simpl.
   rewrite set_nth_write.
@@ -2619,7 +2616,7 @@ Proof.
 Qed.
 
    
-Lemma spec_stack_map_trap `{!logrel_na_invs Σ}(f0 : frame) (n : immediate) (f : i32) (v : Z) (s : seq.seq i32)
+Lemma spec_stack_map_trap `{!logrel_na_invs Σ}(f0 : frame) (n : immediate) (f : i32) (v : Z) (s : seq.seq i32) E
       j0 a (* cl  *)
       (Φ : i32 -> iPropI Σ) (Ψ : i32 -> i32 -> iPropI Σ) :
   ⊢ {{{  ⌜ f0.(f_inst).(inst_memory) !! 0 = Some n ⌝  ∗
@@ -2646,13 +2643,13 @@ Lemma spec_stack_map_trap `{!logrel_na_invs Σ}(f0 : frame) (n : immediate) (f :
                        na_own logrel_nais ⊤
                   }}}
                   [ AI_basic (BI_const (VAL_int32 u)) ;
-                    AI_invoke a ]
+                    AI_invoke a ] @ E
                   {{{ w, (⌜ w = trapV ⌝ ∨ ((∃ v, ⌜ w = immV [VAL_int32 v] ⌝ ∗ Ψ u v)
                                              (* ∗ (N.of_nat j0) ↦[wt][ N.of_nat (Wasm_int.nat_of_uint i32m f) ] (Some a)  *)
                                              (* ∗ (N.of_nat a) ↦[wf] cl *)))
                            ∗ na_own logrel_nais ⊤ ∗ ↪[frame] fc}}}) ∗
             na_own logrel_nais ⊤ ∗ ↪[frame] f0 }}}
-    to_e_list stack_map
+    to_e_list stack_map @ E
     {{{ w, (⌜ w = trapV ⌝ ∨ (⌜ w = immV [] ⌝ ∗
                                         (∃ s', isStack v s' n ∗ stackAll2 s s' Ψ)))
              ∗ (N.of_nat j0) ↦[wt][ N.of_nat (Wasm_int.nat_of_uint i32m f) ] (Some a)
@@ -2713,7 +2710,7 @@ Proof. (* TODO: go through proof and use seq_can_trap_ctx instead of wp_seq, whi
   iApply wp_seq.
   iSplitR ; last first.
   iSplitL "Hf".
-  iApply (wp_get_local with "Hf") => //=.
+  iApply (wp_get_local with "[] [$Hf]") => //=.
   unfold set_nth.
   destruct (f_locs f0) ; first by inversion Hlocs0.
   destruct l ; first by inversion Hlocs1.
@@ -2807,7 +2804,7 @@ Proof. (* TODO: go through proof and use seq_can_trap_ctx instead of wp_seq, whi
     iApply wp_seq_ctx.
     iSplitR ; last first.
     iSplitL "Hf".
-    iApply (wp_get_local with "Hf").
+    iApply (wp_get_local with "[] [$Hf]").
     simpl. by rewrite set_nth_read.
     by instantiate ( 1 := λ x, x = immV _).
     iIntros (w) "[-> Hf]".
@@ -2821,7 +2818,7 @@ Proof. (* TODO: go through proof and use seq_can_trap_ctx instead of wp_seq, whi
     iSplitR ; last first.
     iApply wp_wand_r.
     iSplitL.
-    iApply (wp_get_local with "Hf").
+    iApply (wp_get_local with "[] [$Hf]").
     simpl.
     destruct (f_locs f0) ; first by inversion Hlocs.
     destruct l ; first by inversion Hlocs1.
@@ -2895,7 +2892,7 @@ Proof. (* TODO: go through proof and use seq_can_trap_ctx instead of wp_seq, whi
   iApply wp_seq_ctx.
   iSplitR ; last first.
   iSplitL "Hf".
-  iApply (wp_get_local with "Hf").
+  iApply (wp_get_local with "[] [$Hf]").
   simpl. by rewrite set_nth_read.
   by instantiate ( 1 := λ x, x = immV _).
   iIntros (w) "[-> Hf]".
@@ -2909,7 +2906,7 @@ Proof. (* TODO: go through proof and use seq_can_trap_ctx instead of wp_seq, whi
   iSplitR ; last first.
   iApply wp_wand_r.
   iSplitL.
-  iApply (wp_get_local with "Hf").
+  iApply (wp_get_local with "[] [$Hf]").
   simpl.
   destruct (f_locs f0) ; first by inversion Hlocs.
   destruct l ; first by inversion Hlocs1.
@@ -2957,7 +2954,7 @@ Proof. (* TODO: go through proof and use seq_can_trap_ctx instead of wp_seq, whi
   iApply wp_seq_ctx.
   iSplitR ; last first.
   iSplitL "Hf".
-  iApply (wp_get_local with "Hf") => /=.
+  iApply (wp_get_local with "[] [$Hf]") => /=.
   by rewrite set_nth_read.
   by instantiate (1 := λ x, x = immV _).
   iIntros (w) "[-> Hf]".
@@ -2971,7 +2968,7 @@ Proof. (* TODO: go through proof and use seq_can_trap_ctx instead of wp_seq, whi
   iSplitR ; last first.
   iApply wp_wand_r.
   iSplitL.
-  iApply (wp_get_local with "Hf") => /=.
+  iApply (wp_get_local with "[] [$Hf]") => /=.
   by rewrite set_nth_read.
   by instantiate (1 := λ x, x = immV _).
   iIntros (w) "[-> Hf]".
@@ -2989,7 +2986,7 @@ Proof. (* TODO: go through proof and use seq_can_trap_ctx instead of wp_seq, whi
   iSplitR ; last first.
   iApply wp_wand_r.
   iSplitL.
-  iApply (wp_get_local with "Hf") => /=.
+  iApply (wp_get_local with "[] [$Hf]") => /=.
   by rewrite set_nth_read.
   by instantiate (1 := λ x, x = immV _).
   iIntros (w) "[-> Hf]".
@@ -3109,7 +3106,7 @@ Proof. (* TODO: go through proof and use seq_can_trap_ctx instead of wp_seq, whi
   iSplitR ; last first.
   iApply wp_wand_r.
   iSplitL.
-  iApply (wp_get_local with "Hf") => /=.
+  iApply (wp_get_local with "[] [$Hf]") => /=.
   destruct (f_locs f0) ; inversion Hlocs0.
   simpl. done.
   by instantiate (1 := λ x, x = immV _).
@@ -3211,7 +3208,7 @@ Proof. (* TODO: go through proof and use seq_can_trap_ctx instead of wp_seq, whi
   iApply wp_seq_ctx.
   iSplitR ; last first.
   iSplitL "Hf".
-  iApply (wp_set_local with "Hf") => /=.
+  iApply (wp_set_local with "[] [$Hf]") => /=.
   destruct (f_locs f0) ; first done.
   destruct l ; first done.
   destruct l ; first by simpl in Hlocs ; lia.

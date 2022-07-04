@@ -150,13 +150,13 @@ Notation "m1 ≡ₘ m2" := (mem_block_equiv m1 m2)
 
 (* Instance related *)
 
-Lemma wp_get_local (s : stuckness) (E : coPset) (v: value) (i: nat) (ϕ: iris.val -> Prop) f0 :
-  (f_locs f0) !! i = Some v -> 
-  ϕ (immV [v]) ->
-  ↪[frame] f0 -∗
-  WP ([AI_basic (BI_get_local i)]) @ s; E {{ w, ⌜ ϕ w ⌝ ∗ ↪[frame] f0 }}.
+Lemma wp_get_local (s : stuckness) (E : coPset) (v: value) (i: nat) (Φ: iris.val -> iProp Σ) f :
+  (f_locs f) !! i = Some v -> 
+  ▷Φ (immV [v]) -∗
+  ↪[frame] f -∗
+   WP ([AI_basic (BI_get_local i)]) @ s; E {{ w, Φ w ∗ ↪[frame] f }}.
 Proof.
-  iIntros (Hlook Hϕ) "Hli".
+  iIntros (Hlook) "HΦ Hli".
   iApply wp_lift_atomic_step => //=.
   iIntros (σ ns κ κs nt) "Hσ !>".
   destruct σ as [[ws locs] inst].
@@ -178,13 +178,13 @@ Proof.
     iFrame "# ∗ %".
 Qed.
 
-Lemma wp_set_local (s : stuckness) (E : coPset) (v : value) (i: nat) (ϕ: iris.val -> Prop) f0 :
-  i < length (f_locs f0) ->
-  ϕ (immV []) ->
-  ↪[frame] f0 -∗
-  WP ([AI_basic (BI_const v); AI_basic (BI_set_local i)]) @ s; E {{ w, ⌜ ϕ w ⌝ ∗ ↪[frame] (Build_frame (set_nth v (f_locs f0) i v) (f_inst f0)) }}.
+Lemma wp_set_local (s : stuckness) (E : coPset) (v : value) (i: nat) (Φ: iris.val -> iProp Σ) f :
+  i < length (f_locs f) ->
+  ▷ Φ (immV []) -∗
+  ↪[frame] f -∗
+  WP ([AI_basic (BI_const v); AI_basic (BI_set_local i)]) @ s; E {{ w, Φ w  ∗ ↪[frame] (Build_frame (set_nth v (f_locs f) i v) (f_inst f)) }}.
 Proof.
-  iIntros (Hlen Hϕ) "Hli".
+  iIntros (Hlen) "HΦ Hli".
   iApply wp_lift_atomic_step => //=.
   iIntros (σ ns κ κs nt) "Hσ !>".
   destruct σ as [[ws locs] inst].
@@ -215,7 +215,7 @@ Qed.
 
 Lemma wp_tee_local (s : stuckness) (E : coPset) (v : value) (i : nat) (Φ : iris.val -> iProp Σ) f :
   ⊢ ↪[frame] f -∗
-    (↪[frame] f -∗ WP [AI_basic (BI_const v) ; AI_basic (BI_const v) ;
+    ▷ (↪[frame] f -∗ WP [AI_basic (BI_const v) ; AI_basic (BI_const v) ;
                        AI_basic (BI_set_local i)]
      @ s ; E {{ Φ }}) -∗
              WP [AI_basic (BI_const v) ; AI_basic (BI_tee_local i)] @ s ; E {{ Φ }}.
@@ -243,13 +243,13 @@ Proof.
     iApply bi.sep_exist_l. iExists _. iFrame.
 Qed.
 
-Lemma wp_get_global (s : stuckness) (E : coPset) (v: value) (inst: frame) (n: nat) (ϕ: iris.val -> iProp Σ) (g: global) (k: nat):
-  (f_inst inst).(inst_globs) !! n = Some k ->
+Lemma wp_get_global (s : stuckness) (E : coPset) (v: value) (f: frame) (n: nat) (Φ: iris.val -> iProp Σ) (g: global) (k: nat):
+  (f_inst f).(inst_globs) !! n = Some k ->
   g.(g_val) = v ->
-  ▷ ϕ (immV [v]) -∗
-  ↪[frame] inst -∗
+  ▷ Φ(immV [v]) -∗
+  ↪[frame] f -∗
   N.of_nat k ↦[wg] g -∗
-  WP ([AI_basic (BI_get_global n)]) @ s; E {{ w, (ϕ w ∗ N.of_nat k ↦[wg] g) ∗ ↪[frame] inst }}.
+  WP ([AI_basic (BI_get_global n)]) @ s; E {{ w, (Φ w ∗ N.of_nat k ↦[wg] g) ∗ ↪[frame] f }}.
 Proof.
   iIntros (Hinstg Hgval) "HΦ Hinst Hglob".
   iApply wp_lift_atomic_step => //=.
@@ -282,12 +282,12 @@ Proof.
     only_one_reduction H. iFrame.
 Qed.
 
-Lemma wp_set_global (s : stuckness) (E : coPset) (v: value) (inst: frame) (n: nat) (ϕ: iris.val -> iProp Σ) (g: global) (k: nat):
-  (f_inst inst).(inst_globs) !! n = Some k ->
-  ▷ ϕ (immV []) -∗
-  ↪[frame] inst -∗
+Lemma wp_set_global (s : stuckness) (E : coPset) (v: value) (f: frame) (n: nat) (Φ: iris.val -> iProp Σ) (g: global) (k: nat):
+  (f_inst f).(inst_globs) !! n = Some k ->
+  ▷ Φ (immV []) -∗
+  ↪[frame] f -∗
   N.of_nat k ↦[wg] g -∗
-  WP [AI_basic (BI_const v); AI_basic (BI_set_global n)] @ s; E {{ w, (ϕ w ∗ N.of_nat k ↦[wg] Build_global (g_mut g) v) ∗ ↪[frame] inst }}.
+  WP [AI_basic (BI_const v); AI_basic (BI_set_global n)] @ s; E {{ w, (Φ w ∗ N.of_nat k ↦[wg] Build_global (g_mut g) v) ∗ ↪[frame] f }}.
 Proof.
   iIntros (Hinstg) "HΦ Hinst Hglob".
   iApply wp_lift_atomic_step => //=.
@@ -838,8 +838,7 @@ Proof.
                                     if (k + (off + 1) + N.of_nat k0 <?
                                           N.of_nat (length (ml_data dat)))%N
                                     then
-                                      Some {| ml_init := ml_init dat ;
-                                             ml_data :=
+                                      Some {| ml_data :=
                                              seq.take (N.to_nat (k + (off + 1) +
                                                                    N.of_nat k0))
                                                       (ml_data dat) ++
@@ -952,7 +951,7 @@ Qed.
     
 Lemma mem_update_insert k b dat dat':
   mem_update k b dat = Some dat' ->
-  dat' = Build_memory_list (ml_init dat) (<[(N.to_nat k) := b]> (ml_data dat)) /\
+  dat' = Build_memory_list (<[(N.to_nat k) := b]> (ml_data dat)) /\
   (N.to_nat k) < length (ml_data dat).
 Proof.
   unfold mem_update.
@@ -980,7 +979,7 @@ Proof.
   { subst => /=.
     by rewrite insert_length.
   }
-  exists (Build_memory_list (ml_init dat) (<[(N.to_nat k') := b']> (ml_data dat))).
+  exists (Build_memory_list (<[(N.to_nat k') := b']> (ml_data dat))).
   unfold mem_update.
   assert (k' <? N.of_nat (length (ml_data dat')))%N as Hk'0.
   { apply N.ltb_lt. lia. }
@@ -1341,18 +1340,19 @@ Proof.
 Qed.
 
 
-
+(*
 Lemma map_app {A B} (l1 : list A) l2 (f : A -> B) : map f (l1 ++ l2) = map f l1 ++ map f l2.
 Proof.
+  Search map app.
   induction l1 ; intros ; try done.
   simpl. by rewrite IHl1.
 Qed. 
+ *)
 
-Lemma take_drop {A} n (l : list A) : n < length l -> l = seq.take n l ++ seq.drop n l.
+Lemma take_drop {A} n (l : list A) :(* n < length l -> *)l = seq.take n l ++ seq.drop n l.
 Proof.
-  intros. generalize dependent n. induction l ; intros.  by inversion H.
-  destruct n. by unfold take, drop.
-  simpl. rewrite <- (IHl n) => //=. simpl in H ; lia.
+  rewrite <- cat_app.
+  by rewrite cat_take_drop.
 Qed.
 
 
@@ -1378,6 +1378,8 @@ Proof.
     rewrite lookup_app_l => //=. by rewrite <- H1. }
   destruct n. rewrite <- H1. apply Logic.eq_sym, nil_length_inv in H1. rewrite H1.
   unfold those => //=. rewrite H. rewrite H1 => //=. lia.
+  (* Minor todo: check this *)
+ (* rewrite <- (cat_take_drop (length ys) (iota 0 (S (length ys)))).*)
   rewrite (take_drop (length ys) (iota 0 (S (length ys)))).
   rewrite take_iota. 
   unfold ssrnat.minn. 
@@ -1390,9 +1392,6 @@ Proof.
   rewrite map_app. apply those_app. rewrite <- H1. apply (IHn ys H1 H0).
   unfold those => //=. rewrite H. 
   rewrite list_lookup_middle => //=. rewrite <- H1 ; lia.
-  replace (length (iota 0 (S (length ys)))) with (seq.size (iota 0 (S (length ys)))) ;
-    last done.
-  rewrite size_iota. lia.
 Qed.
 
 
@@ -1470,9 +1469,8 @@ Qed.
 Lemma iota_length len i :
   length (iota i len) = (len).
 Proof.
-  revert i.
-  induction len;intros i;auto.
-  simpl. f_equiv. by rewrite IHlen.
+  rewrite length_is_size.
+  by apply size_iota.
 Qed.
 
 Lemma load_prefix m k off bs len :
@@ -1498,7 +1496,6 @@ Proof.
   { apply/ssrnat.minn_idPl/ssrnat.leP. lia. }
   rewrite HH in Hload1.
   eexists _,_. split;eauto.
-  rewrite iota_length. auto.
 Qed.
 
 Lemma if_load_then_store bs bs' m k off :
@@ -1603,12 +1600,14 @@ Proof.
     unfold option_map.
     destruct (those0 (map f l));try done. }
 Qed.
+
 Lemma those_not_nil {A B : Type} (f : A -> option B) l a a' :
   those (map f l) = Some (a :: a') -> l ≠ [].
 Proof.
   rewrite -those_those0.
   induction l;auto.
 Qed.
+
 Lemma those_length  {A B : Type} (f : A -> option B) l l' :
   those (map f l) = Some l' -> length l = length l'.
 Proof.
@@ -2153,15 +2152,15 @@ Qed.
 
 Lemma wp_load (Φ:iris.val -> iProp Σ) (s:stuckness) (E:coPset) (t:value_type) (v:value)
       (off: static_offset) (a: alignment_exponent)
-      (k: i32) (n:nat) (f0: frame):
+      (k: i32) (n:nat) (f: frame):
   types_agree t v ->
-  f0.(f_inst).(inst_memory) !! 0 = Some n ->
+  f.(f_inst).(inst_memory) !! 0 = Some n ->
   (▷ Φ (immV [v]) ∗
-   ↪[frame] f0 ∗
+   ↪[frame] f ∗
      N.of_nat n ↦[wms][ N.add (Wasm_int.N_of_uint i32m k) off ]
      (bits v) ⊢
      (WP [AI_basic (BI_const (VAL_int32 k)) ;
-          AI_basic (BI_load t None a off)] @ s; E {{ w, (Φ w ∗ (N.of_nat n) ↦[wms][ N.add (Wasm_int.N_of_uint i32m k) off ](bits v)) ∗ ↪[frame] f0 }})).
+          AI_basic (BI_load t None a off)] @ s; E {{ w, (Φ w ∗ (N.of_nat n) ↦[wms][ N.add (Wasm_int.N_of_uint i32m k) off ](bits v)) ∗ ↪[frame] f }})).
 Proof.
   iIntros (Htv Hinstn) "[HΦ [Hf0 Hwms]]".
   iApply wp_load_deserialize;auto.
@@ -2322,14 +2321,14 @@ Qed.
 
 
 Lemma wp_store (ϕ: iris.val -> iProp Σ) (s: stuckness) (E: coPset) (t: value_type) (v: value)
-      (bs : bytes) (off: static_offset) (a: alignment_exponent) (k: i32) (n: nat) (f0: frame) :
+      (bs : bytes) (off: static_offset) (a: alignment_exponent) (k: i32) (n: nat) (f: frame) :
   types_agree t v ->
   length bs = t_length t ->
-  f0.(f_inst).(inst_memory) !! 0 = Some n ->
+  f.(f_inst).(inst_memory) !! 0 = Some n ->
   (▷ ϕ (immV []) ∗
-   ↪[frame] f0 ∗
+   ↪[frame] f ∗
   N.of_nat n ↦[wms][ N.add (Wasm_int.N_of_uint i32m k) off ] bs) ⊢
-  (WP ([AI_basic (BI_const (VAL_int32 k)); AI_basic (BI_const v); AI_basic (BI_store t None a off)]) @ s; E {{ w, (ϕ w ∗ (N.of_nat n) ↦[wms][ Wasm_int.N_of_uint i32m k + off ] (bits v)) ∗ ↪[frame] f0 }}).
+  (WP ([AI_basic (BI_const (VAL_int32 k)); AI_basic (BI_const v); AI_basic (BI_store t None a off)]) @ s; E {{ w, (ϕ w ∗ (N.of_nat n) ↦[wms][ Wasm_int.N_of_uint i32m k + off ] (bits v)) ∗ ↪[frame] f }}).
 Proof.
   iIntros (Hvt Hbs Hinstn) "[HΦ [Hf0 Hwms]]".
   iApply wp_lift_atomic_step => //=.
@@ -2572,12 +2571,12 @@ Proof.
 Qed.
   
 
-Lemma wp_current_memory (s: stuckness) (E: coPset) (k: nat) (n: N) (f0:frame) (Φ: iris.val -> iProp Σ) :
-  f0.(f_inst).(inst_memory) !! 0 = Some k ->
+Lemma wp_current_memory (s: stuckness) (E: coPset) (k: nat) (n: N) (f:frame) (Φ: iris.val -> iProp Σ) :
+  f.(f_inst).(inst_memory) !! 0 = Some k ->
   (▷ Φ (immV [(VAL_int32 (Wasm_int.int_of_Z i32m (ssrnat.nat_of_bin (N.div n page_size))))]) ∗
-   ↪[frame] f0 ∗
+   ↪[frame] f ∗
    (N.of_nat k) ↦[wmlength] n) ⊢
-   WP ([AI_basic (BI_current_memory)]) @ s; E {{ w, (Φ w ∗ (N.of_nat k) ↦[wmlength] n) ∗ ↪[frame] f0 }}.
+   WP ([AI_basic (BI_current_memory)]) @ s; E {{ w, (Φ w ∗ (N.of_nat k) ↦[wmlength] n) ∗ ↪[frame] f }}.
 Proof.
   iIntros (Hf) "(HΦ & Hf0 & Hmemlength)".
   iApply wp_lift_atomic_step => //=.
@@ -2611,62 +2610,6 @@ Proof.
     iFrame.
 Qed.
 
-
-(*
-Lemma reduce_grow_memory hs ws f c hs' ws' f' es' k mem mem':
-  f.(f_inst).(inst_memory) !! 0 = Some k ->
-  nth_error (s_mems ws) k = Some mem ->
-  reduce hs ws f [AI_basic (BI_const (VAL_int32 c)); AI_basic (BI_grow_memory)] hs' ws' f' es' ->
-  ((hs', ws', f', es') = (hs, ws, f, [AI_basic (BI_const (VAL_int32 int32_minus_one))] ) \/
-   (hs', ws', f', es') = (hs, (upd_s_mem ws (update_list_at (s_mems ws) k mem')), f, [AI_basic (BI_const (VAL_int32 (Wasm_int.int_of_Z i32m (ssrnat.nat_of_bin (mem_size mem)))))]) /\
-  mem_grow mem (Wasm_int.N_of_uint i32m c) = Some mem').
-Proof.
-  move => Hinst Hmem HReduce.
-  destruct f as [locs inst].
-  destruct f' as [locs' inst'].
-  (*only_one_reduction HReduce [AI_basic (BI_const (VAL_int32 (Wasm_int.int_of_Z i32m (ssrnat.nat_of_bin (mem_size mem)))))] locs inst locs' inst'.*)
-Admitted. *)
-
-Lemma big_opL_app {A} (l1 : list A) l2 (f : nat -> A -> iProp Σ) :
-  ⊢ ([∗ list] i↦b ∈ (l1 ++ l2), f i b) ∗-∗
-                               (([∗ list] i↦b ∈ l1, f i b) ∗
-                                                           [∗ list] i↦b ∈ l2, f (i + length l1) b).
-Proof.
-  generalize dependent f.
-  induction l1 ; intros f => //=.
-  iSplit.
-  iIntros "H".
-  iSplitR => //=.
-  iApply (big_sepL_impl with "H") => //=.
-  iIntros "!>" (k x) "%Hk Hfx".
-  by rewrite - plus_n_O.
-  iIntros "[_ H]".
-  iApply (big_sepL_impl with "H") => //=.
-  iIntros "!>" (k x) "%Hk Hfx".
-  by rewrite - plus_n_O.
-  iSplit.
-  iIntros "[H0 Hplus]".
-  iDestruct (IHl1 (λ i b, f (S i) b) with "Hplus") as "[H1 H2]".
-  iSplitR "H2".
-  iFrame.
-  iApply (big_sepL_impl with "H2") => //=.
-  iIntros "!>" (k x) "%Hk Hfx".
-  replace (k + S (length l1)) with (S (k + length l1)) => //= ; last lia.
-  iIntros "[[H0 H1] H2]".
-  iSplitL "H0" => //=.
-  iDestruct (big_sepL_impl with "H2") as "H2".
-  iAssert (□ (∀ k x, ⌜ l2 !! k = Some x ⌝ → f (k + S (length l1)) x -∗
-                                              (λ i b, f (S (i + length l1)) b) k x))%I
-    as "H".
-  iIntros "!>" (k x) "%Hk Hfx".
-  replace (k + S (length l1)) with (S (k + length l1)) => //= ; last lia.
-  iDestruct ("H2" with "H") as "H2".
-  iDestruct (IHl1 (λ i b, f (S i) b)) as "[Hl Hr]".
-  iApply "Hr". iFrame.
-Qed.
-
-
-
 Lemma gen_heap_alloc_grow (m m' : memory) (mems mems' : list memory) (k : nat) (n : N) : 
   mems !! k = Some m ->
   mem_grow m n = Some m' ->
@@ -2674,7 +2617,7 @@ Lemma gen_heap_alloc_grow (m m' : memory) (mems mems' : list memory) (k : nat) (
   gen_heap_interp (gmap_of_memory mems) ==∗
                   gen_heap_interp (gmap_of_memory mems')
                   ∗ N.of_nat k↦[wms][ mem_length m ]
-                  repeat (ml_init (mem_data m)) (N.to_nat (n * page_size)).
+                  repeat (#00%byte) (N.to_nat (n * page_size)).
 Proof.
   iIntros (Hmems Hgrow Hupd) "Hmems".
   assert (k < length mems) as Hk ; first by eapply lookup_lt_Some.
@@ -2718,15 +2661,14 @@ Proof.
         lia.
       * iModIntro. 
         iSplitL "Hmems".
-        -- instantiate (1 := ml_init (mem_data m)).
+        -- instantiate (1 := #00%byte).
            replace (<[ _ := _ ]> (gmap_of_memory _)) with
              (gmap_of_memory
                 (update_list_at
                    mems k
                    {| mem_data :=
-                     {| ml_init := ml_init (mem_data m);
-                       ml_data := ml_data (mem_data m) ++
-                                          repeat (ml_init (mem_data m)) (S size)
+                     {| ml_data := ml_data (mem_data m) ++
+                                          repeat #00%byte (S size)
                      |} ;
                      mem_max_opt := mem_max_opt m
                    |})).
@@ -2785,11 +2727,12 @@ Proof.
            rewrite repeat_app.
            unfold mem_block_at_pos.
            iApply big_opL_app.
-           iSplitL "Hm" => //=.
+           iFrame "Hm".
            iSplitL => //=.
            rewrite repeat_length.
            rewrite Nat2N.inj_add.
            rewrite N2Nat.id.
+           rewrite Nat.add_0_r.
            done.
   - remember (N.to_nat (n * page_size)) as size.
     inversion Hgrow.
@@ -2824,15 +2767,14 @@ Proof.
         lia.
       * iModIntro. 
         iSplitL "Hmems".
-        -- instantiate (1 := ml_init (mem_data m)).
+        -- instantiate (1 := #00%byte).
            replace (<[ _ := _ ]> (gmap_of_memory _)) with
              (gmap_of_memory
                 (update_list_at
                    mems k
                    {| mem_data :=
-                     {| ml_init := ml_init (mem_data m);
-                       ml_data := ml_data (mem_data m) ++
-                                          repeat (ml_init (mem_data m)) (S size)
+                     {| ml_data := ml_data (mem_data m) ++
+                                          repeat #00%byte (S size)
                      |} ;
                      mem_max_opt := mem_max_opt m
                    |})).
@@ -2891,31 +2833,32 @@ Proof.
            rewrite repeat_app.
            unfold mem_block_at_pos.
            iApply big_opL_app.
-           iSplitL "Hm" => //=.
+           iFrame "Hm".
            iSplitL => //=.
            rewrite repeat_length.
            rewrite Nat2N.inj_add.
            rewrite N2Nat.id.
+           rewrite Nat.add_0_r.
            done.
 Qed.
 
 
   
  
-Lemma wp_grow_memory (s: stuckness) (E: coPset) (k: nat) (f0 : frame)
+Lemma wp_grow_memory (s: stuckness) (E: coPset) (k: nat) (f : frame)
       (n: N) (Φ Ψ : iris.val -> iProp Σ) (c: i32) :
-  f0.(f_inst).(inst_memory) !! 0 = Some k ->
-  ( ↪[frame] f0 ∗
+  f.(f_inst).(inst_memory) !! 0 = Some k ->
+  ( ↪[frame] f ∗
      (N.of_nat k) ↦[wmlength] n ∗
      ▷ Φ (immV [VAL_int32 (Wasm_int.int_of_Z i32m (ssrnat.nat_of_bin (n `div` page_size)%N))]) ∗
      ▷ Ψ (immV [VAL_int32 int32_minus_one]))
     ⊢ WP [AI_basic (BI_const (VAL_int32 c)) ; AI_basic (BI_grow_memory)]
     @ s; E {{ w, ((Φ w ∗
-                    (∃ b, (N.of_nat k) ↦[wms][ n ]
-                    repeat b (N.to_nat (Wasm_int.N_of_uint i32m c * page_size))) ∗
+                    ((N.of_nat k) ↦[wms][ n ]
+                    repeat #00%byte (N.to_nat (Wasm_int.N_of_uint i32m c * page_size))) ∗
                     (N.of_nat k) ↦[wmlength]
                     (n + Wasm_int.N_of_uint i32m c * page_size)%N)
-                 ∨ (Ψ w ∗ (N.of_nat k) ↦[wmlength] n)) ∗ ↪[frame] f0 }}.
+                 ∨ (Ψ w ∗ (N.of_nat k) ↦[wmlength] n)) ∗ ↪[frame] f }}.
 Proof.
   iIntros (Hfm) "(Hframe & Hmlength & HΦ & HΨ)".
   iApply wp_lift_atomic_step => //=.
@@ -2994,8 +2937,7 @@ Proof.
         rewrite Hmemlength'.
         replace (Wasm_int.N_of_uint i32m c) with (Z.to_N (Wasm_int.Int32.unsigned c)) ;
           last done.
-        iFrame.
-        by iExists _. }
+        by iFrame. }
     { (* grow_memory failed *)
       iSplitR "Hframe HΨ Hmlength"  => //.
       iFrame => //.
