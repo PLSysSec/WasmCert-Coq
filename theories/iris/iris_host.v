@@ -113,8 +113,8 @@ Fixpoint innermost_frame llh defaultf :=
 
 
 Inductive host_reduce: store_record -> vi_store -> list module -> list host_e -> list host_action -> frame -> list administrative_instruction -> store_record -> vi_store -> list module -> list host_e -> list host_action -> frame -> list administrative_instruction -> Prop :=
-| HR_host_step:
-  forall s (vis: vi_store) m (viexps: list vi) vm vimps imps imp_descs s' vis' ms idecs' inst (exps: list module_export) start vs f fs,
+| HR_host_instantiate:
+  forall s (vis: vi_store) m (viexps: list vi) vm vimps imps imp_descs s' vis' ms inst (exps: list module_export) start vs f fs,
     ms !! (N.to_nat vm) = Some m ->
     those ((lookup_export_vi vis) <$> vimps) = Some imps ->
     fmap (fun imp => imp.(modexp_desc)) imps = imp_descs ->
@@ -122,15 +122,15 @@ Inductive host_reduce: store_record -> vi_store -> list module -> list host_e ->
     length viexps = length exps ->
     const_list vs ->
     insert_exports vis viexps exps = Some vis' ->
-    host_reduce s vis ms ((ID_instantiate viexps vm vimps) :: idecs') fs f vs s' vis' ms idecs' fs f (map_start start)
-| HR_host_step_init_oob: forall s (vis: vi_store) m (viexps: list vi) vm vimps imps imp_descs ms idecs' (exps: list module_export) f vs fs,
+    host_reduce s vis ms [ID_instantiate viexps vm vimps] fs f vs s' vis' ms [::] fs f (map_start start)
+| HR_host_instantiate_init_oob: forall s (vis: vi_store) m (viexps: list vi) vm vimps imps imp_descs ms (exps: list module_export) f vs fs,
     ms !! (N.to_nat vm) = Some m ->
     those ((lookup_export_vi vis) <$> vimps) = Some imps ->
     fmap (fun imp => imp.(modexp_desc)) imps = imp_descs ->
     const_list vs ->
     (not (module_elem_bound_check_gmap (gmap_of_list s.(s_tables)) imp_descs m /\
             module_data_bound_check_gmap (gmap_of_list s.(s_mems)) imp_descs m)) ->
-    host_reduce s vis ms ((ID_instantiate viexps vm vimps) :: idecs') fs f vs s vis ms idecs' fs f [AI_trap]
+    host_reduce s vis ms [ID_instantiate viexps vm vimps] fs f vs s vis ms [] fs f [AI_trap]
  | HR_call_host_action :
   forall (s:store_record) vis ms idecs (s':store_record) (tf:function_type)
     (h:hostfuncidx) (hi:nat) f
@@ -164,7 +164,8 @@ Inductive host_reduce: store_record -> vi_store -> list module -> list host_e ->
     host_reduce s vis ms [H_get_global g] fs f vs s vis ms [] fs f (AI_basic (BI_const (g_val v_glob)) :: vs)
 | HR_trap: ∀ s vis ms d ds fs f,
     host_reduce s vis ms (d :: ds) fs f [::AI_trap] s vis ms ds fs f [::AI_trap]
-| HR_seq: ∀ s vis ms d ds vs fs f s' vis' ms' vs' fs' f' s2 vis2 ms2 d2 fs2 f2 vs2,
+  (* renamed to make determinism still clear *)
+| HR_host_step: ∀ s vis ms d ds vs fs f s' vis' ms' vs' fs' f' s2 vis2 ms2 d2 fs2 f2 vs2,
     const_list vs ->
     host_reduce s vis ms [d] fs f vs s' vis' ms' [] fs' f' vs' ->
     host_reduce s' vis' ms' ds fs' f' vs' s2 vis2 ms2 d2 fs2 f2 vs2 ->
