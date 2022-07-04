@@ -4,6 +4,12 @@ From iris.proofmode Require Import base tactics classes.
 From iris.base_logic Require Export gen_heap ghost_map proph_map.
 From iris.base_logic.lib Require Export fancy_updates.
 Require Export iris iris_locations iris_properties iris_atomicity stdpp_aux.
+From iris.proofmode Require Import base proofmode classes.
+From iris.base_logic.lib Require Export fancy_updates.
+From iris.program_logic Require Export language.
+(* FIXME: If we import iris.bi.weakestpre earlier texan triples do not
+   get pretty-printed correctly. *)
+From iris.bi Require Export weakestpre derived_laws.
 Require Export iris_host iris_rules iris_fundamental iris_wp iris_interp_instance_alloc.
 Require Export datatypes host operations properties opsem.
 
@@ -103,7 +109,7 @@ Section Examples.
   Definition lse a n :=
     to_e_list (lse_expr a n).
 
-  Lemma lse_spec f n j a C i es g k locs :
+  Lemma lse_spec f n j a C i es g k locs gval :
     (tc_label C) = [] ∧ (tc_return C) = None ->
 
     f.(f_inst).(inst_memory) !! 0 = Some n ->
@@ -116,11 +122,11 @@ Section Examples.
          ∗ na_own logrel_nais ⊤
          ∗ na_inv logrel_nais (wfN (N.of_nat a)) ((N.of_nat a) ↦[wf] (FC_func_native i (Tf [] []) locs es))
          ∗ interp_instance C [] i
-         ∗ (∃ gv, N.of_nat k ↦[wg] {| g_mut := MUT_mut; g_val := gv |})
+         ∗ (N.of_nat k ↦[wg] {| g_mut := MUT_mut; g_val := gval |})
          ∗ ∃ c, (N.of_nat n) ↦[wms][ 0%N ] (bits (VAL_int32 c)) }}}
       lse j g
       {{{ w, (⌜w = trapV⌝ ∨ (⌜w = immV []⌝
-                                      ∗ (N.of_nat k) ↦[wg] {| g_mut := MUT_mut; g_val := xx 42 |}
+                                      ∗ (N.of_nat k ↦[wg] {| g_mut := MUT_mut; g_val := (xx 42) |})
                                       ∗ (N.of_nat n) ↦[wms][ 0%N ] (bits (xx 42))
                                       ∗ na_own logrel_nais ⊤))
                ∗ ↪[frame] f }}}.
@@ -128,7 +134,7 @@ Section Examples.
     iIntros (Hc Hn Ha Hg Hes Φ). iModIntro.
     iIntros "(Hf & Hown & #Ha & #Hi & Hg & Hn) HΦ".
     iDestruct "Hn" as (c) "Hn".
-    iDestruct "Hg" as (gv) "Hg".
+    (* iDestruct "Hg" as (gv) "Hg". *)
     iApply (wp_wand with "[-HΦ] HΦ").
 
     unfold lse.
@@ -197,10 +203,14 @@ Section Examples.
     { iApply wp_load;eauto;[|iFrame];eauto. }
     iIntros (v) "[[-> Hn] Hf]". iSimpl.
 
+    (* iApply (wp_atomic _ _ (⊤ ∖ ↑γ)). *)
+    (* iInv γ as ">Hgret" "Hcls". iModIntro. *)
+    
     iApply (wp_wand _ _ _ (λ v, (⌜v = immV _⌝ ∗ _) ∗ _)%I with "[Hf Hg]").
     { iApply (wp_set_global with "[] Hf Hg"); eauto. }
-
-    iIntros (v) "[[-> Hg] Hf]". iFrame.
+    
+    iIntros (v) "[[-> Hgret] Hf]". iFrame.
+    (* iMod ("Hcls" with "[$]"). iModIntro. *)
     iRight. iFrame. auto.
   Qed.
 
@@ -281,9 +291,10 @@ Section Examples_host.
       apply Forall2_cons. split;auto. }
   Qed.
 
-  Definition adv_lse_instantiate :=
+  Definition adv_lse_instantiate g :=
     [ ID_instantiate [0%N] 0 [] ;
-      ID_instantiate [] 1 [0%N;1%N] ].
+      ID_instantiate [] 1 [0%N;1%N] ;
+      H_get_global g ].
 
   
   Lemma instantiate_lse adv_module g_ret wret :
@@ -294,14 +305,14 @@ Section Examples_host.
     module_data_bound_check_gmap ∅ [] adv_module -> (* if the adversary module declares a memory, there cannot be more initializers that its size *)
     typeof wret = T_i32 -> (* the imported return global has type i32 *)
 
-    ⊢ {{{ g_ret ↦[wg] {| g_mut := MUT_mut; g_val := wret |} ∗
+    ⊢ {{{ ((N.of_nat g_ret) ↦[wg] {| g_mut := MUT_mut; g_val := wret |})∗
           0%N ↪[mods] adv_module ∗
           1%N ↪[mods] lse_module ∗
           na_own logrel_nais ⊤ ∗
-          (∃ name, 1%N ↪[vis] {| modexp_name := name; modexp_desc := MED_global (Mk_globalidx (N.to_nat g_ret)) |}) ∗
+          (∃ name, 1%N ↪[vis] {| modexp_name := name; modexp_desc := MED_global (Mk_globalidx g_ret) |}) ∗
           (∃ vs, 0%N ↪[vis] vs) }}}
-        ((adv_lse_instantiate,[]) : host_expr)
-      {{{ v, ⌜v = (trapHV : host_val)⌝ ∨ g_ret ↦[wg] {| g_mut := MUT_mut; g_val := xx 42|} }}} .
+        ((adv_lse_instantiate g_ret,[]) : host_expr)
+      {{{ v, ⌜v = trapHV ∨ v = immHV [xx 42]⌝ }}} .
   Proof.
     iIntros (Htyp Hnostart Hrestrict Hboundst Hboundsm Hgrettyp).
     iModIntro. iIntros (Φ) "(Hgret & Hmod_adv & Hmod_lse & Hown & Hvis1 & Hvis) HΦ".
@@ -378,6 +389,7 @@ Section Examples_host.
 
     iApply (wp_wand_host _ _ _ (λ v, _ ∗ ↪[frame]empty_frame)%I with "[-HΦ] [HΦ]");cycle 1.
     { iIntros (v) "[Hv ?]". iApply "HΦ". iExact "Hv". }
+    
     { iApply (instantiation_spec_operational_start with "[$Hmod_lse Hgret Hadvf Hn Hvis1]");[eauto|..].
       { apply lse_module_typing. }
       { unfold import_resources_host.
