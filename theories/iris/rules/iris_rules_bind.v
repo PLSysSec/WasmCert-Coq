@@ -315,6 +315,5 @@ Context `{!wasmG Σ}.
       iApply wp_label_bind_next;eauto. }
   Qed.
 
-
     
 End bind_rules.
