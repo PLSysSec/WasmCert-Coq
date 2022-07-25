@@ -98,6 +98,8 @@ Inductive value_type : Type := (* t *)
   | T_f64
   .
 
+Scheme Equality for value_type.
+
 
 Inductive packed_type : Type := (* tp *)
   | Tp_i8

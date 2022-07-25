@@ -2,6 +2,8 @@
   (name Wasm)
   (flags -w -notation-overridden -w -abstract-large-number -w -extraction-reserved-identifier))
 
+(include_subdirs qualified)
+
 ;(coq.extraction
 ;	(prelude extraction)
 ;	(extracted_modules extract))
