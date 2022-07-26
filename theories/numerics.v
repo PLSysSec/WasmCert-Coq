@@ -7,6 +7,8 @@ From compcert Require Integers Floats.
 From mathcomp Require Import ssreflect ssrfun ssrnat ssrbool eqtype seq.
 From Flocq Require Core BinarySingleNaN.
 
+Import BinarySingleNaN.
+
 Set Implicit Arguments.
 Unset Strict Implicit.
 Unset Printing Implicit Defensive.
@@ -1472,8 +1474,6 @@ Proof.
   by apply: (svalP unspec_nan_nan).
 Defined.
 
-Import BinarySingleNaN.
-
 (** Given a mantissa and an exponent (in radix two), produce a representation for a float.
   The sign is not specified if given 0 as a mantissa. **)
 Definition normalise (m e : Z) : T :=
@@ -1521,7 +1521,7 @@ Qed.
 (** Importing the square root of floats from the Flocq library with the
   round-to-nearest ties-to-even mode. **)
 Definition sqrt (z : T) : T :=
-  Binary.Bsqrt _ _ prec_gt_0 Hmax (fun z => exist _ _ (nans_is_nan [:: z])) Binary.mode_NE z.
+  Binary.Bsqrt _ _ prec_gt_0 Hmax (fun z => exist _ _ (nans_is_nan [:: z])) BinarySingleNaN.mode_NE z.
 
 (** Square root following the Wasm standard. **)
 
@@ -1549,6 +1549,8 @@ Definition ZofB_param (divP divN : Z -> Z -> Z) (z : T) :=
     Some (cond_Zopp s (div (Z.pos m) (Z.pow_pos radix2 e)))
   | _ => None
   end.
+
+Import ZArith.Zbool.
 
 (** We now instantiate this function with the following three division operations, only
   differenciated in how they round numbers: [div_down] rounds down, [div_up] up, and
@@ -1929,14 +1931,14 @@ Definition wasm_demote (z : f64) : f32 :=
   else if Wasm_float.Float64.is_nan z then
     Wasm_float.Float32.nans [:: Wasm_float.Float32.BofZ (BinIntDef.Z.of_nat 1)]
   else IEEE754_extra.Bconv _ _ _ _ Wasm_float.FloatSize32.prec_gt_0 Wasm_float.FloatSize32.Hmax
-         (fun _ => Wasm_float.Float32.unspec_nan_nan) Binary.mode_NE z.
+         (fun _ => Wasm_float.Float32.unspec_nan_nan) BinarySingleNaN.mode_NE z.
 
 Definition wasm_promote (z : f32) : f64 :=
   if Wasm_float.Float32.is_canonical z then Wasm_float.Float64.nans [::]
   else if Wasm_float.Float32.is_nan z then
     Wasm_float.Float64.nans [:: Wasm_float.Float64.BofZ (BinIntDef.Z.of_nat 1)]
   else IEEE754_extra.Bconv _ _ _ _ Wasm_float.FloatSize64.prec_gt_0 Wasm_float.FloatSize64.Hmax
-         (fun _ => Wasm_float.Float64.unspec_nan_nan) Binary.mode_NE z.
+         (fun _ => Wasm_float.Float64.unspec_nan_nan) BinarySingleNaN.mode_NE z.
 
 Definition wasm_bool (b : bool) : i32 :=
   if b then Wasm_int.Int32.one else Wasm_int.Int32.zero.
