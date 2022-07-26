@@ -5,6 +5,7 @@ Require Import common.
 From Coq Require ZArith.Int ZArith.BinInt.
 From compcert Require Integers Floats.
 From mathcomp Require Import ssreflect ssrfun ssrnat ssrbool eqtype seq.
+From Flocq Require Core BinarySingleNaN.
 
 Set Implicit Arguments.
 Unset Strict Implicit.
@@ -1156,6 +1157,8 @@ Import Raux.
 
 Import Floats.
 
+Import ZArith.BinInt.
+
 Parameters prec emax : Z.
 
 Parameter prec_gt_0 : FLX.Prec_gt_0 prec.
@@ -1194,6 +1197,8 @@ Import Floats.
 
 Include Float32.
 
+Import ZArith.BinInt.
+
 Definition prec : BinNums.Z := 24.
 Definition emax : BinNums.Z := 128.
 
@@ -1219,6 +1224,8 @@ Import Raux.
 Import Floats.
 
 Include Float.
+
+Import ZArith.BinInt.
 
 Definition prec : BinNums.Z := 53.
 Definition emax : BinNums.Z := 1024.
@@ -1249,6 +1256,9 @@ Import Raux.
 Import Floats.
 
 Export FS.
+
+Import ZArith.Zpower.
+Import ZArith.BinInt.
 
 Definition eqb v1 v2 := is_left (eq_dec v1 v2).
 Definition eqbP : Equality.axiom eqb := eq_dec_Equality_axiom eq_dec.
@@ -1281,6 +1291,7 @@ Definition pos_zero : T := Binary.B754_zero _ _ false.
 
 (** [-0] **)
 Definition neg_zero : T := Binary.B754_zero _ _ true.
+
 
 (** The canonical [NaN] payload. **)
 Definition canonical_pl := shift_pos (Z.to_pos prec - 2) 1.
@@ -1334,6 +1345,8 @@ Proof.
   rewrite_by (Z.succ (Z.log2 (Z.pos pl)) - 1 = Z.log2 (Z.pos pl)).
   apply Z.log2_spec. by lias.
 Qed.
+
+Import Core.Zaux.
 
 Lemma canonical_pl_is_arithmetic : pl_arithmetic canonical_pl.
 Proof.
@@ -1459,11 +1472,13 @@ Proof.
   by apply: (svalP unspec_nan_nan).
 Defined.
 
+Import BinarySingleNaN.
+
 (** Given a mantissa and an exponent (in radix two), produce a representation for a float.
   The sign is not specified if given 0 as a mantissa. **)
 Definition normalise (m e : Z) : T :=
   Binary.binary_normalize _ _ prec_gt_0 Hmax
-    Binary.mode_NE m e ltac:(abstract exact false).
+    BinarySingleNaN.mode_NE m e ltac:(abstract exact false).
 
 (** As Flocq is unfortunately undocumented, let us introduce a unit test here, to check
   that indeed we have the correct understanding of definitions.
@@ -1476,7 +1491,7 @@ Local Definition normalise_unit_test :=
   let: half := normalise 1 (-1) in
   let: twice_half :=
     Binary.Bplus _ _ prec_gt_0 Hmax (fun _ _ => unspec_nan_nan)
-      Binary.mode_NE half half : T in
+      BinarySingleNaN.mode_NE half half : T in
   let: one := Binary.Bone _ _ prec_gt_0 Hmax in
   cmp Ceq twice_half one = true.
 
