@@ -4,6 +4,7 @@ From Wasm Require Import datatypes opsem.
 From Wasm Require Import ccompiler.compile ccompiler.num_conv.
 Require Import compcert.lib.Integers.
 Require Import compcert.cfrontend.Clight.
+Require Import compcert.cfrontend.Cop.
 Require Import compcert.common.AST.
 Require Import compcert.common.Memory.
 Require Import compcert.common.Values.
@@ -44,6 +45,15 @@ Proof.
   exists (PTree.set r (val_equiv v') le).
   split.
   2: apply PTree.gss.
-  destruct u.
-  - admit.
-  - admit.
+  destruct u; destruct u; unfold compile_unop in H0; try discriminate. (* TODO: remove when totalizing *)
+  inversion H0. clear H0.
+  apply step_set.
+  apply eval_Eunop with (v1:=val_equiv v).
+  2: {
+    unfold sem_unary_operation.
+    unfold sem_neg.
+    unfold classify_neg.
+    unfold compile_value_type.
+    unfold typeof.
+    destruct vt.
+    }
