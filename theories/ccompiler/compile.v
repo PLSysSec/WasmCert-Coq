@@ -4,6 +4,7 @@ From Wasm Require Import ccompiler.num_conv.
 Require Import compcert.common.AST.
 Require Import compcert.cfrontend.Clight.
 Require Import compcert.cfrontend.Ctypes.
+Require Import compcert.cfrontend.Cop.
 
 Scheme Equality for prod.
 Scheme Equality for Z.
@@ -36,6 +37,16 @@ Definition compile_value (v : value) : Clight.expr :=
 Definition compile_const (v : value) (r : ident) : Clight.statement :=
   Sset r (compile_value v).
 
+Definition compile_unop (vt : value_type) (u : unop) (r : ident) (x : ident)
+  : option Clight.statement :=
+  match u with
+  | Unop_f UOF_neg =>
+      let t : type := compile_value_type vt in
+      Some (Sset r (Eunop Oneg (Etempvar x t) t))
+  | _ => None
+  end.
+
+(*
 Module Type UNIQUE.
   Parameter t : Set.
   Parameter eqb : t -> t -> bool.
@@ -65,3 +76,4 @@ Module VarUnique := Unique(VarUNIQUE).
 Definition var (t : value_type) (i : Z) (s : VarUnique.store)
   : ident * VarUnique.store :=
   VarUnique.get (t, i) s.
+*)
