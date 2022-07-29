@@ -30,11 +30,20 @@ Qed.
 Lemma unop_equiv :
   forall (ge : genv) (function_entry : function -> list val -> mem -> env -> temp_env -> mem -> Prop) (f : function) (k : cont) (e : env) (m : mem)
          (vt : value_type) (u : unop) (r : ident) (x : ident) (v v' : value)
-         (le le' : temp_env) (s : statement),
+         (le : temp_env) (s : statement),
   reduce_simple [AI_basic (BI_const v); AI_basic (BI_unop vt u)]
                 [AI_basic (BI_const v')] ->
   compile_unop vt u r x = Some s ->
-  step ge function_entry (State f s k e le m) E0 (State f Sskip k e le' m) ->
   PTree.get x le = Some (val_equiv v) ->
+  exists (s' : statement) (le' : temp_env),
+  step ge function_entry (State f s k e le m) E0 (State f s' k e le' m) /\
   PTree.get r le' = Some (val_equiv v').
 Proof.
+  intros.
+  exists Sskip.
+  exists (PTree.set r (val_equiv v') le).
+  split.
+  2: apply PTree.gss.
+  destruct u.
+  - admit.
+  - admit.
