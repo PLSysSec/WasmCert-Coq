@@ -1,8 +1,9 @@
 Require Import Coq.Lists.List.
 Import ListNotations.
-From mathcomp Require Import eqtype.
+From mathcomp Require Import ssreflect eqtype seq.
 From Wasm Require Import datatypes opsem typing.
 From Wasm Require Import ccompiler.compile ccompiler.num_conv.
+From Wasm Require Import type_preservation.
 Require Import compcert.lib.Integers.
 Require Import compcert.cfrontend.Clight.
 Require Import compcert.cfrontend.Cop.
@@ -28,18 +29,131 @@ Proof.
   intros. unfold compile_value. destruct c; eauto using eval_expr.
 Qed.
 
-  (* TODO: reflexive transitive closure of Clight.step *)
+Ltac some_equational :=
+  repeat progress match goal with
+    | [ _ : Some _ = None |- _ ] => discriminate
+    | [ _ : None = Some _ |- _ ] => discriminate
+    | [ H : Some _ = Some _ |- _ ] => inversion H; clear H
+    end.
+
+Ltac to_e_list_destruct :=
+  repeat progress match goal with
+    | [ H : to_e_list ?l = cons _ _ |- _ ] => destruct l; simpl in H; try discriminate; inversion H; clear H; subst
+    | [ H : to_e_list ?l = [] |- _ ] => destruct l; simpl in H; try discriminate
+    | [ H : [] = [] |- _ ] => clear H
+    end.
+
+Ltac invert_be_typing:=
+  repeat lazymatch goal with
+  | H: (?es ++ [::?e])%list = [::_] |- _ =>
+    extract_listn
+  | H: (?es ++ [::?e])%list = [::_; _] |- _ =>
+    extract_listn
+  | H: (?es ++ [::?e])%list = [::_; _; _] |- _ =>
+    extract_listn
+  | H: (?es ++ [::?e])%list = [::_; _; _; _] |- _ =>
+    extract_listn
+  | H: be_typing _ [::] _ |- _ =>
+    apply empty_typing in H; subst
+  | H: be_typing _ [:: BI_const _] _ |- _ =>
+    apply BI_const_typing in H; subst
+  | H: be_typing _ [:: BI_const _; BI_const _] _ |- _ =>
+    apply BI_const2_typing in H; subst
+  | H: be_typing _ [:: BI_const _; BI_const _; BI_const _] _ |- _ =>
+    apply BI_const3_typing in H; subst
+  | H: be_typing _ [::BI_unop _ _] _ |- _ =>
+    let ts := fresh "ts" in
+    let H1 := fresh "H1" in
+    let H2 := fresh "H2" in
+    apply Unop_typing in H; destruct H as [H1 [ts H2]]; subst
+  | H: be_typing _ [::BI_binop _ _] _ |- _ =>
+    let ts := fresh "ts" in
+    let H1 := fresh "H1" in
+    let H2 := fresh "H2" in
+    apply Binop_typing in H; destruct H as [H1 [ts H2]]; subst
+  | H: be_typing _ [::BI_testop _ _] _ |- _ =>
+    let ts := fresh "ts" in
+    let H1 := fresh "H1" in
+    let H2 := fresh "H2" in
+    apply Testop_typing in H; destruct H as [ts [H1 H2]]; subst
+  | H: be_typing _ [::BI_relop _ _] _ |- _ =>
+    let ts := fresh "ts" in
+    let H1 := fresh "H1" in
+    let H2 := fresh "H2" in
+    apply Relop_typing in H; destruct H as [ts [H1 H2]]; subst
+  | H: be_typing _ [::BI_cvtop _ _ _ _] _ |- _ =>
+    let ts := fresh "ts" in
+    let H1 := fresh "H1" in
+    let H2 := fresh "H2" in
+    apply Cvtop_typing in H; destruct H as [ts [H1 H2]]; subst
+  | H: be_typing _ [::BI_drop] _ |- _ =>
+    apply Drop_typing in H; destruct H; subst
+  | H: be_typing _ [::BI_select] _ |- _ =>
+    let ts := fresh "ts" in
+    let t := fresh "t" in
+    let H1 := fresh "H1" in
+    let H2 := fresh "H2" in
+    apply Select_typing in H; destruct H as [ts [t [H1 H2]]]; subst
+  | H: be_typing _ [::BI_if _ _ _] _ |- _ =>
+    let ts := fresh "ts" in
+    let H1 := fresh "H1" in
+    let H2 := fresh "H2" in
+    let H3 := fresh "H3" in
+    let H4 := fresh "H4" in
+    apply If_typing in H; destruct H as [ts [H1 [H2 [H3 H4]]]]; subst
+  | H: be_typing _ [::BI_br_if _] _ |- _ =>
+    let ts := fresh "ts" in
+    let ts' := fresh "ts'" in
+    let H1 := fresh "H1" in
+    let H2 := fresh "H2" in
+    let H3 := fresh "H3" in
+    let H4 := fresh "H4" in
+    apply Br_if_typing in H; destruct H as [ts [ts' [H1 [H2 [H3 H4]]]]]; subst
+  | H: be_typing _ [::BI_br_table _ _] _ |- _ =>
+    let ts := fresh "ts" in
+    let ts' := fresh "ts'" in
+    let H1 := fresh "H1" in
+    let H2 := fresh "H2" in
+    apply Br_table_typing in H; destruct H as [ts [ts' [H1 H2]]]; subst
+  | H: be_typing _ [::BI_tee_local _] _ |- _ =>
+    let ts := fresh "ts" in
+    let t := fresh "t" in
+    let H1 := fresh "H1" in
+    let H2 := fresh "H2" in
+    let H3 := fresh "H3" in
+    let H4 := fresh "H4" in
+    apply Tee_local_typing in H; destruct H as [ts [t [H1 [H2 [H3 H4]]]]]; subst
+  | H: be_typing _ (_ ++ _) _ |- _ =>
+    let ts1 := fresh "ts1" in
+    let ts2 := fresh "ts2" in
+    let ts3 := fresh "ts3" in
+    let ts4 := fresh "ts4" in
+    let H1 := fresh "H1" in
+    let H2 := fresh "H2" in
+    let H3 := fresh "H3" in
+    let H4 := fresh "H4" in
+    apply composition_typing in H; destruct H as [ts1 [ts2 [ts3 [ts4 [H1 [H2 [H3 H4]]]]]]]
+  | H: be_typing _ [::_;_] _ |- _ =>
+    rewrite -cat1s in H
+  | H: be_typing _ [::_;_;_] _ |- _ =>
+    rewrite -cat1s in H
+  | H: be_typing _ [::_;_;_;_] _ |- _ =>
+    rewrite -cat1s in H
+  | H: _ ++ [::_] = _ ++ [::_] |- _ =>
+    apply concat_cancel_last in H; destruct H; subst
+  end.
+
+(* TODO: reflexive transitive closure of Clight.step *)
 Lemma unop_equiv :
   forall (ge : genv) (function_entry : function -> list val -> mem -> env -> temp_env -> mem -> Prop) (f : function) (k : cont) (e : env) (m : mem)
          (vt : value_type) (u : unop) (r : ident) (x : ident) (v v' : value)
          (le : temp_env) (s : statement)
-         (ai ai' : list administrative_instruction) (ft : function_type) (host_function : eqType) (sr : store_record host_function) (C : t_context),
+         (bi : list basic_instruction) (ai' : list administrative_instruction) (ft : function_type) (host_function : eqType) (sr : store_record host_function) (C : t_context),
   unop_type_agree vt u ->
-  ai = [AI_basic (BI_const v); AI_basic (BI_unop vt u)] ->
-  ai' = [AI_basic (BI_const v')] ->
-  reduce_simple ai ai' ->
-  e_typing sr C ai ft ->
-  e_typing sr C ai' ft ->
+  bi = [BI_const v; BI_unop vt u] ->
+  ai' = to_e_list [BI_const v'] ->
+  reduce_simple (to_e_list bi) ai' ->
+  be_typing C bi ft ->
   compile_unop vt u r x = Some s ->
   PTree.get x le = Some (val_equiv v) ->
   exists (s' : statement) (le' : temp_env),
@@ -49,31 +163,55 @@ Proof.
   intros.
   exists Sskip.
   exists (PTree.set r (val_equiv v') le).
-  split. 2: apply PTree.gss.
-  destruct u; destruct u; unfold compile_unop in H5; try discriminate. (* TODO: remove when totalizing *)
-  inversion H5. clear H5.
-  apply step_set.
-  apply eval_Eunop with (v1:=val_equiv v).
-  2: {
-    unfold sem_unary_operation.
-    unfold sem_neg.
-    unfold classify_neg.
-    unfold compile_value_type.
-    unfold typeof.
-    destruct vt; inversion H; clear op H5.
-    destruct v. inversion H3. clear s1 C0 H7 H9 H11 tf.
-    rewrite H0 in H10. unfold to_e_list in H10.  destruct bes.
-    { unfold seq.map in H10. discriminate. }
-    rewrite map_cons in H10. destruct bes.
-    { unfold seq.map in H10. discriminate. }
-    rewrite map_cons in H10. destruct bes.
-    2: { rewrite map_cons in H10. discriminate. }
-    inversion H10. rewrite H9 in H5. rewrite H11 in H5. clear H9 H10 H11 b b0.
-    inversion H5. clear H10 C0.
-    unfold app in H7. destruct es.
-    { discriminate. }
-    destruct es.
-    2: { destruct es; discriminate. } 
-    inversion H7. rewrite H13 in H9. rewrite H14 in H11. clear b e0 H13 H14 H7.
-    inversion H9. inversion H11. rewrite <- H19 in H15. discriminate.
-    }
+
+  split; try solve [ apply PTree.gss ].
+  destruct u; destruct u; unfold compile_unop in *; some_equational. (* TODO: remove when totalizing *)
+  apply step_set; eapply eval_Eunop. (* TODO: tactify the eval *)
+  - eauto using eval_expr.
+  - destruct vt; simpl; match goal with [ H : unop_type_agree _ _ |- _ ] => inversion H; clear H; subst end.
+    + invert_be_typing; (* TODO: do this properly without copying the tactic *)
+      match goal with [ H : be_typing _ ?bi _ |- _ ] => inversion H; clear H; subst end; extract_listn;
+      invert_be_typing;
+      destruct v; simpl in *; try discriminate;
+      match goal with [ H : reduce_simple _ _ |- _ ] => inversion H; clear H; subst end;
+      unfold sem_neg; simpl.
+      - admit.
+      - admit.
+    + invert_be_typing; (* TODO: do this properly without copying the tactic *)
+      match goal with [ H : be_typing _ ?bi _ |- _ ] => inversion H; clear H; subst end; extract_listn;
+      invert_be_typing;
+      destruct v; simpl in *; try discriminate;
+      match goal with [ H : reduce_simple _ _ |- _ ] => inversion H; clear H; subst end;
+      unfold sem_neg; simpl.
+      - admit.
+      - admit.
+
+
+  (* split. 2: apply PTree.gss. *)
+  (* destruct u; destruct u; unfold compile_unop in H5; try discriminate. (* TODO: remove when totalizing *) *)
+  (* inversion H5. clear H5. *)
+  (* apply step_set. *)
+  (* apply eval_Eunop with (v1:=val_equiv v). *)
+  (* 2: { *)
+  (*   unfold sem_unary_operation. *)
+  (*   unfold sem_neg. *)
+  (*   unfold classify_neg. *)
+  (*   unfold compile_value_type. *)
+  (*   unfold typeof. *)
+  (*   destruct vt; inversion H; clear op H5. *)
+  (*   destruct v. inversion H3. clear s1 C0 H7 H9 H11 tf. *)
+  (*   rewrite H0 in H10. unfold to_e_list in H10.  destruct bes. *)
+  (*   { unfold seq.map in H10. discriminate. } *)
+  (*   rewrite map_cons in H10. destruct bes. *)
+  (*   { unfold seq.map in H10. discriminate. } *)
+  (*   rewrite map_cons in H10. destruct bes. *)
+  (*   2: { rewrite map_cons in H10. discriminate. } *)
+  (*   inversion H10. rewrite H9 in H5. rewrite H11 in H5. clear H9 H10 H11 b b0. *)
+  (*   inversion H5. clear H10 C0. *)
+  (*   unfold app in H7. destruct es. *)
+  (*   { discriminate. } *)
+  (*   destruct es. *)
+  (*   2: { destruct es; discriminate. }  *)
+  (*   inversion H7. rewrite H13 in H9. rewrite H14 in H11. clear b e0 H13 H14 H7. *)
+  (*   inversion H9. inversion H11. rewrite <- H19 in H15. discriminate. *)
+  (*   } *)
