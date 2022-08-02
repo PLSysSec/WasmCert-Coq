@@ -44,7 +44,7 @@ Ltac to_e_list_destruct :=
     end.
 
 Ltac invert_be_typing:=
-  repeat lazymatch goal with
+  repeat match goal with
   | H: (?es ++ [::?e])%list = [::_] |- _ =>
     extract_listn
   | H: (?es ++ [::?e])%list = [::_; _] |- _ =>
@@ -141,6 +141,8 @@ Ltac invert_be_typing:=
     rewrite -cat1s in H
   | H: _ ++ [::_] = _ ++ [::_] |- _ =>
     apply concat_cancel_last in H; destruct H; subst
+  | H : be_typing _ _ ?ft |- _ =>
+    is_var ft; destruct ft
   end.
 
 (* TODO: reflexive transitive closure of Clight.step *)
@@ -165,27 +167,13 @@ Proof.
   exists (PTree.set r (val_equiv v') le).
 
   split; try solve [ apply PTree.gss ].
-  destruct u; destruct u; unfold compile_unop in *; some_equational. (* TODO: remove when totalizing *)
+  destruct u as [[] | []]; unfold compile_unop in *; some_equational. (* TODO: remove when totalizing *)
   apply step_set; eapply eval_Eunop. (* TODO: tactify the eval *)
   - eauto using eval_expr.
-  - destruct vt; simpl; match goal with [ H : unop_type_agree _ _ |- _ ] => inversion H; clear H; subst end.
-    + invert_be_typing; (* TODO: do this properly without copying the tactic *)
-      match goal with [ H : be_typing _ ?bi _ |- _ ] => inversion H; clear H; subst end; extract_listn;
-      invert_be_typing;
-      destruct v; simpl in *; try discriminate;
-      match goal with [ H : reduce_simple _ _ |- _ ] => inversion H; clear H; subst end;
-      unfold sem_neg; simpl.
-      - admit.
-      - admit.
-    + invert_be_typing; (* TODO: do this properly without copying the tactic *)
-      match goal with [ H : be_typing _ ?bi _ |- _ ] => inversion H; clear H; subst end; extract_listn;
-      invert_be_typing;
-      destruct v; simpl in *; try discriminate;
-      match goal with [ H : reduce_simple _ _ |- _ ] => inversion H; clear H; subst end;
-      unfold sem_neg; simpl.
-      - admit.
-      - admit.
-
+  - destruct vt; simpl; match goal with [ H : unop_type_agree _ _ |- _ ] => inversion H; clear H; subst end;
+    invert_be_typing; destruct v; simpl in *; try discriminate;
+    match goal with [ H : reduce_simple _ _ |- _ ] => inversion H; clear H; subst end;
+    unfold sem_neg; simpl; f_equal.
 
   (* split. 2: apply PTree.gss. *)
   (* destruct u; destruct u; unfold compile_unop in H5; try discriminate. (* TODO: remove when totalizing *) *)
