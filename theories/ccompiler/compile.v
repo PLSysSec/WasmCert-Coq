@@ -17,21 +17,13 @@ Definition compile_value_type (t : value_type) : Ctypes.type :=
   | T_f64 => Tfloat F64 noattr
   end.
 
-(* TODO: make the conversions between Wasm and Compcert ints cleaner *)
 Definition compile_value (v : value) : Clight.expr :=
+  let t := compile_value_type (type_of_value v) in
   match v with
-  | VAL_int32 x =>
-      let t' := compile_value_type T_i32 in
-        Econst_int (int_of x) t'
-  | VAL_int64 x =>
-      let t' := compile_value_type T_i64 in
-        Econst_long (long_of x) t'
-  | VAL_float32 x =>
-      let t' := compile_value_type T_f32 in
-      Econst_single x t'
-  | VAL_float64 x =>
-      let t' := compile_value_type T_f64 in
-      Econst_float x t'
+  | VAL_int32 x => Econst_int (int_of x) t
+  | VAL_int64 x => Econst_long (long_of x) t
+  | VAL_float32 x => Econst_single x t
+  | VAL_float64 x => Econst_float x t
   end.
 
 Definition compile_const (v : value) (r : ident) : Clight.statement :=
@@ -39,10 +31,9 @@ Definition compile_const (v : value) (r : ident) : Clight.statement :=
 
 Definition compile_unop (vt : value_type) (u : unop) (r : ident) (x : ident)
   : option Clight.statement :=
+  let t : type := compile_value_type vt in
   match u with
-  | Unop_f UOF_neg =>
-      let t : type := compile_value_type vt in
-      Some (Sset r (Eunop Oneg (Etempvar x t) t))
+  | Unop_f UOF_neg => Some (Sset r (Eunop Oneg (Etempvar x t) t))
   | _ => None
   end.
 
