@@ -145,6 +145,13 @@ Ltac invert_be_typing:=
     is_var ft; destruct ft
   end.
 
+Lemma f32_neg : forall s : Floats.float32, Floats.Float32.neg s = Wasm_float.Float32.fneg s.
+Proof.
+Admitted.
+Lemma f64_neg : forall s : Floats.float, Floats.Float.neg s = Wasm_float.Float64.fneg s.
+Proof.
+Admitted.
+
 (* TODO: reflexive transitive closure of Clight.step *)
 Lemma unop_equiv :
   forall (ge : genv) (function_entry : function -> list val -> mem -> env -> temp_env -> mem -> Prop) (f : function) (k : cont) (e : env) (m : mem)
@@ -173,33 +180,7 @@ Proof.
   - destruct vt; simpl; match goal with [ H : unop_type_agree _ _ |- _ ] => inversion H; clear H; subst end;
     invert_be_typing; destruct v; simpl in *; try discriminate;
     match goal with [ H : reduce_simple _ _ |- _ ] => inversion H; clear H; subst end;
-    unfold sem_neg; simpl; f_equal.
-
-  (* split. 2: apply PTree.gss. *)
-  (* destruct u; destruct u; unfold compile_unop in H5; try discriminate. (* TODO: remove when totalizing *) *)
-  (* inversion H5. clear H5. *)
-  (* apply step_set. *)
-  (* apply eval_Eunop with (v1:=val_equiv v). *)
-  (* 2: { *)
-  (*   unfold sem_unary_operation. *)
-  (*   unfold sem_neg. *)
-  (*   unfold classify_neg. *)
-  (*   unfold compile_value_type. *)
-  (*   unfold typeof. *)
-  (*   destruct vt; inversion H; clear op H5. *)
-  (*   destruct v. inversion H3. clear s1 C0 H7 H9 H11 tf. *)
-  (*   rewrite H0 in H10. unfold to_e_list in H10.  destruct bes. *)
-  (*   { unfold seq.map in H10. discriminate. } *)
-  (*   rewrite map_cons in H10. destruct bes. *)
-  (*   { unfold seq.map in H10. discriminate. } *)
-  (*   rewrite map_cons in H10. destruct bes. *)
-  (*   2: { rewrite map_cons in H10. discriminate. } *)
-  (*   inversion H10. rewrite H9 in H5. rewrite H11 in H5. clear H9 H10 H11 b b0. *)
-  (*   inversion H5. clear H10 C0. *)
-  (*   unfold app in H7. destruct es. *)
-  (*   { discriminate. } *)
-  (*   destruct es. *)
-  (*   2: { destruct es; discriminate. }  *)
-  (*   inversion H7. rewrite H13 in H9. rewrite H14 in H11. clear b e0 H13 H14 H7. *)
-  (*   inversion H9. inversion H11. rewrite <- H19 in H15. discriminate. *)
-  (*   } *)
+    unfold sem_neg; simpl; f_equal; f_equal.
+    + apply f32_neg.
+    + apply f64_neg.
+Qed.
