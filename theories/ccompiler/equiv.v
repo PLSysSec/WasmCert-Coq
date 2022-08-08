@@ -175,12 +175,9 @@ Proof.
 
   split; try solve [ apply PTree.gss ].
   destruct u as [[] | []]; unfold compile_unop in *; some_equational. (* TODO: remove when totalizing *)
-  apply step_set; eapply eval_Eunop. (* TODO: tactify the eval *)
-  - eauto using eval_expr.
+  apply step_set; eapply eval_Eunop; try solve [ eauto using eval_expr ]. (* TODO: tactify the eval *)
   - destruct vt; simpl; match goal with [ H : unop_type_agree _ _ |- _ ] => inversion H; clear H; subst end;
     invert_be_typing; destruct v; simpl in *; try discriminate;
     match goal with [ H : reduce_simple _ _ |- _ ] => inversion H; clear H; subst end;
-    unfold sem_neg; simpl; f_equal; f_equal.
-    + apply f32_neg.
-    + apply f64_neg.
+    unfold sem_neg; simpl; f_equal; f_equal; auto using f32_neg, f64_neg.
 Qed.
