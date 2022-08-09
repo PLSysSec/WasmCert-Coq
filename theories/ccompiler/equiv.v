@@ -145,6 +145,12 @@ Ltac invert_be_typing:=
     is_var ft; destruct ft
   end.
 
+
+(* TODO: Section 4.3.3.1 of the Wasm spec states:
+  > Rounding always is round-to-nearest ties-to-even, in correspondence with [IEEE-754-2019] (Section 4.3.1).
+  > As such, compiling float operations might require the use of <fenv.h>'s `fsetround` function
+*)
+
 Lemma f32_neg : forall s : Floats.float32, Floats.Float32.neg s = Wasm_float.Float32.fneg s.
 Proof.
 Admitted.
@@ -179,5 +185,6 @@ Proof.
   - destruct vt; simpl; match goal with [ H : unop_type_agree _ _ |- _ ] => inversion H; clear H; subst end;
     invert_be_typing; destruct v; simpl in *; try discriminate;
     match goal with [ H : reduce_simple _ _ |- _ ] => inversion H; clear H; subst end;
-    unfold sem_neg; simpl; f_equal; f_equal; auto using f32_neg, f64_neg.
+    unfold sem_neg; simpl; f_equal; f_equal;
+    auto using f32_neg, f64_neg.
 Qed.
