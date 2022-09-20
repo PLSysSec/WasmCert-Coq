@@ -150,6 +150,12 @@ Inductive function_type := (* tf *)
   (* FIXME: Shouldn’t we enforce it? *)
   .
 
+Definition fun_input (ft : function_type) : result_type :=
+  let (i, _) := ft in i.
+
+Definition fun_output (ft : function_type) : result_type :=
+  let (_, o) := ft in o.
+
 (** std-doc:
 The element type funcref is the infinite union of all function types. A table
 of that type thus contains references to functions of heterogeneous type.

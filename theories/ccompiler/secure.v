@@ -12,22 +12,21 @@ Require Import compcert.common.Memory.
 Require Import compcert.lib.Integers.
 Require Import compcert.lib.Maps.
 
-Section SEMANTICS.
+Definition step (p : Clight.program) : state -> trace -> state -> Prop :=
+  let ge := globalenv p in
+  step ge (function_entry2 ge).
 
-Variable ge : genv.
-
-Definition function_entry : function -> list val -> mem -> env -> temp_env -> mem -> Prop :=
-  function_entry2 ge.
-
-Definition step := step ge function_entry.
-
-Inductive valid : state -> Prop :=
-  | valid_final : forall (s : state) (x : int), final_state s x -> valid s
-  | valid_step : forall (s1 s2 : state) (e : trace), step s1 e s2 -> valid s2 -> valid s1
+Inductive valid : Clight.program -> state -> Prop :=
+  | valid_final :
+      forall (p : Clight.program) (s : state) (x : int),
+      final_state s x -> valid p s
+  | valid_step :
+      forall (p : Clight.program) (s1 s2 : state) (e : trace),
+      step p s1 e s2 -> valid p s2 -> valid p s1
   .
 
 Definition well_defined (p : Clight.program) : Prop :=
-  forall (s : state), initial_state p s -> valid s.
+  forall s : state, initial_state p s -> valid p s.
 
 Program Definition simple_program (f : function) : Clight.program :=
   {|
@@ -72,7 +71,7 @@ Proof.
   unfold well_defined.
   intros.
   destruct H.
-  subst ge0.
+  subst ge.
   unfold find_symbol in H0.
   simpl in H0.
   rewrite PTree.gss in H0.
@@ -86,7 +85,6 @@ Proof.
   1:{
     unfold step.
     apply step_internal_function.
-    unfold function_entry.
     apply function_entry2_intro; unfold trivial_function; simpl.
     - apply list_norepet_nil.
     - apply list_norepet_nil.
